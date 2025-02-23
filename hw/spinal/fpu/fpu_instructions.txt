@@ -1,0 +1,110 @@
+FILE:72-TRN-228-00_The_T9000_Transputer_Products_Overview_Manual_1991.pdf
+
+Table 11.24 IMS T9000 floating point load/store operation codes
+IMS T9000 floating point load/store operation codes
+OperationCode MemoryCode Mnemonic Name Notes
+8E 28FE fpldnlsn fp load non-local single M,U
+8A 28FA fpldnldb fp load non-local double M,U
+86 28F6 fpldnlsni fp load non-local indexed single M,U
+82 28F2 fpldnldbi fp load non-local indexed double M,U
+9F 29FF fpldzerosn load zero single
+AO 2AFO fpldzerodb load zero double
+AA 2AFA fpldnladdsn fp load non local & add single M,U,i,o,u,x,t
+A6 2AF6 fpldnladddb fp load non local & add double M,U,i,o,u,x,t
+AC 2AFC fpldnlmulsn fp load non local & multiply single M,U,i,o,u,x,t
+A8 2AF8 fpldnlmuldb fp load non local & multiply double M,U,i,o,u,x,t
+88 28F8 fpstnlsn fp store non-local single M,U
+84 28F4 fpstnkjb fp store non-local double M,U
+9E 29FE fpstnli32 store non-local int32 M,U
+
+Table 11 .25 IMS T9000 floating point general operation codes
+OperationCode MemoryCode Mnemonic Name Notes
+AB 2AFB fpentry floating point unit entry
+A4 2AF4 fprev floating point reverse
+A3 2AF3 fpdup floating point duplicate
+
+Table 11.26 IMS T9000 floating point rounding operation codes
+OperationCode MemoryCode Mnemonic Name Notes
+DO (22) 20FO fprn set rounding mode to round nearest
+06 (06) 20F6 fprz set rounding mode to round zero
+04 (04) 20F4 fprp set rounding mode to round positive
+05 (OS) 20F5 fprm set rounding mode to round minus
+
+Table 11.27 IMS T9000 floating point error operation codes
+OperationCode MemoryCode Mnemonic Name Notes
+83 28F3 fpchkerr check fp error E
+9C 29FC fptesterr test fp error false and clear
+CB (23) 2CFB fpseterr set fp error t
+OC (9C) 20FC fpclrerr clear fp error
+
+Table 11.28 IMS T9000 floating point comparison operation codes
+OperationCode MemoryCode Mnemonic Name Notes
+94 29F4 fpgt 2 fp greater than i,t
+95 29F5 fpeq 2 fp equality i,t
+92 29F2 fpordered 1 fp orderability i
+91 29F1 fpnan 1 fp NaN i
+93 29F3 fpnotfinite 1 fp not finite i
+OE (OE) 20FE fpchki32 2 check in range of type int32 i,t
+OF (OF) 20FF fpchki64 2 check in range of type int64 i,t
+
+Table 11.29 IMS T9000 floating point conversion operation codes
+OperationCode MemoryCode Mnemonic Name Notes
+07 (07) 20F7 fpr321or64 2 real32 to real64 i,t,d
+08 (08) 20F8 fpr64tor32 2 real64 to real32 i,o,u,x,t,d
+90 29FO fprtoi32 2-4 real to int32 i,x,t
+96 29F6 fpi3210r32 2-4 int32 to real32 M,U,x
+98 29F8 fpi3210r64 2 int32 to real64 M,U
+9A 29FA fpb321or64 2 bit32 to real64 M,U
+00 (00) 20FO fpnoround 2 real64 to real32, no round
+A1 2AF1 fpint 2-4 round to floating integer i,x,t
+
+Table 11.30 IMS T9000 floating point arithmetic operation codes
+OperationCode MemoryCode Mnemonic CyclesSingle CyclesDouble Name Notes
+S7 2SF7 fpadd 2 2 fp add i,o,u,x,t,d
+S9 2SF9 fpsub 2 2 fp subtract i,o,u,x,t,d
+SB 2SFB fpmul 2 3 fp multiply i,o,u,x,t,d
+SC 2SFC fpdiv S 15 fp divide i,z,o,u,x,t,d
+DB (OB) 2DFB fpabs 1 1 fp absolute i,t
+DA(OA) 2DFA fpexpinc32 2 2 multiply by 232 i,o,t,d
+D9 (09) 2DF9 fpexpdec32 2 2 divide by 232 i,u,x,t,d
+D2 (12) 2DF2 fpmulby2 2 2 multiply by 2.0 i,o,t,d
+D1 (11) 2DF1 fpdivby2 2 2 divide by 2.0 i,u,x,t,d
+
+Table 11.31 IMS T9000 floating point operation codes which are included for compatibility with the IMS TS05
+OperationCode MemoryCode Mnemonic CyclesSingle CyclesDouble Name Notes
+nla 01 412AFB fpusqrtfirst 2 2 ftoating-pointsquare root first
+nla 02 422AFB fpusqrtstep 2 2 floating-pointsquare root step
+nla 03 432AFB fpusqrtlast S 15 floating-point i,x,t,dsquare root last
+SF nla 2SFF fpremfirst 5-74 5-529 fp remainder I,i,u,t
+90 nla 29FO fpremstep 2 2 floating-point remainder step
+
+Table 11.32 IMS T9000 additional floating point operation codes
+OperationCode MemoryCode Mnemonic CyclesSingle CyclesDouble Name Notes
+CF 2CFF fprem 5-74 5-529 fp remainder I,i,u,t
+D3 2DF3 fpsqrt 8 15 fp square root i,x,t,d
+SD 2SFD fprange 5-10 5-17 floating point range reduce i,u,t
+97 29F7 fpge 2 2 fp greater than or equality i,t
+9B 29FB fplg 2 2 fp less than or greater than i,t
+
+The Notes column of the tables indicates the descheduling and error features of an instruction as described in table 11.9.
+It also indicates which instructions cannot be used in G-, L- or P-processes.
+
+Ident Feature
+E Error can be explicitly set
+0 Integer overflow / divide by zero error
+U Unaligned memory access to word / half word
+M Invalid memory address for P-process
+i IEEE invalid operation exception
+z IEEE divide by zero exception
+0 IEEE overflow exception
+u IEEE underflow exception
+x IEEE inexact exception
+t T800 FPU error exception
+I Interruptible instruction
+B Instruction can cause a breakpoint, G-processes only
+T Timesliceable instruction
+p Instruction not allowed in P-process
+G Instruction not allowed in G-process
+L Instruction not allowed in L-process
+D The instruction is a descheduling point
+d Denormalized operands or results can take 2 processor cycles longer
