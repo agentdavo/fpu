@@ -1,9 +1,9 @@
 package fpu
 
 import spinal.core._
+import spinal.lib._
 
 object FPUCmd extends SpinalEnum {
-  // Full T9000 opcode set from Tables 11.24–11.32
   val fpldnlsn, fpldnldb, fpldnlsni, fpldnldbi, fpldzerosn, fpldzerodb, fpldnladdsn, fpldnladddb,
       fpldnlmulsn, fpldnlmuldb, fpstnlsn, fpstnldb, fpstnli32, fpentry, fprev, fpdup, fprn, fprz,
       fprp, fprm, fpadd, fpsub, fpmul, fpdiv, fpabs, fpexpinc32, fpexpdec32, fpmulby2, fpdivby2,
@@ -14,12 +14,12 @@ object FPUCmd extends SpinalEnum {
     fpldnlsn -> 0x8E, fpldnldb -> 0x8A, fpldnlsni -> 0x86, fpldnldbi -> 0x82, fpldzerosn -> 0x9F,
     fpldzerodb -> 0xA0, fpldnladdsn -> 0xAA, fpldnladddb -> 0xA6, fpldnlmulsn -> 0xAC, fpldnlmuldb -> 0xA8,
     fpstnlsn -> 0x88, fpstnldb -> 0x84, fpstnli32 -> 0x9E, fpentry -> 0xAB, fprev -> 0xA4, fpdup -> 0xA3,
-    fprn -> 0xD0, fprz -> 0x06, fprp -> 0x04, fprm -> 0x05, fpadd -> 0xS7, fpsub -> 0xS9, fpmul -> 0xSB,
-    fpdiv -> 0xSC, fpabs -> 0xDB, fpexpinc32 -> 0xDA, fpexpdec32 -> 0xD9, fpmulby2 -> 0xD2, fpdivby2 -> 0xD1,
+    fprn -> 0xD0, fprz -> 0x06, fprp -> 0x04, fprm -> 0x05, fpadd -> 0x87, fpsub -> 0x89, fpmul -> 0x8B,
+    fpdiv -> 0x8C, fpabs -> 0xDB, fpexpinc32 -> 0xDA, fpexpdec32 -> 0xD9, fpmulby2 -> 0xD2, fpdivby2 -> 0xD1,
     fprtoi32 -> 0x90, fpi32tor32 -> 0x96, fpi32tor64 -> 0x98, fpb32tor64 -> 0x9A, fpnoround -> 0x00,
     fpint -> 0xA1, fpgt -> 0x94, fpeq -> 0x95, fpordered -> 0x92, fpnan -> 0x91, fpnotfinite -> 0x93,
     fpchki32 -> 0x0E, fpchki64 -> 0x0F, fpge -> 0x97, fplg -> 0x9B, fpsqrt -> 0xD3, fprem -> 0xCF,
-    fprange -> 0xSD, fpr32tor64 -> 0x07, fpr64tor32 -> 0x08
+    fprange -> 0x8D, fpr32tor64 -> 0x07, fpr64tor32 -> 0x08
   )
 }
 
@@ -39,7 +39,21 @@ object FPUConfig {
   val bias = 1023
   val clockFreqMHz = 50  // T9000: 50 MHz (Section 1)
 
-  // Latency aligned with T9000 Tables 11.24–11.32
+  case class MemoryInterface() extends Bundle with IMasterSlave {
+    val addr = UInt(32 bits)
+    val dataIn = Bits(64 bits)
+    val dataOut = Bits(64 bits)
+    val read = Bool()
+    val write = Bool()
+    val valid = Bool()
+    val ready = Bool()
+
+    override def asMaster(): Unit = {
+      out(addr, dataIn, read, write, valid)
+      in(dataOut, ready)
+    }
+  }
+
   def latencyFor(cmd: FPUCmd.E): (Int, Int) = cmd match { // (single, double)
     case FPUCmd.fpadd => (2, 2)        // Table 11.30
     case FPUCmd.fpsub => (2, 2)        // Table 11.30
@@ -92,7 +106,6 @@ object FPUConfig {
     case FPUCmd.fpr64tor32 => (2, 2)   // Table 11.29
   }
 
-  // Pipeline control functions (T9000 Section 2, Figure 1)
   def shiftStackFor(cmd: FPUCmd.E): Bool = cmd match {
     case FPUCmd.fpldnlsn | FPUCmd.fpldnldb | FPUCmd.fpldnlsni | FPUCmd.fpldnldbi |
          FPUCmd.fpldzerosn | FPUCmd.fpldzerodb | FPUCmd.fpdup => True

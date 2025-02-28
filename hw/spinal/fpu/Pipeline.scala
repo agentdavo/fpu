@@ -82,3 +82,55 @@ class Pipeline extends Component {
     Builder(s01, s12, s23, s34)
   }
 }
+
+// Basic pipeline simulation
+object PipelineSim extends App {
+  SimConfig.withFstWave.compile(new Pipeline()).doSim { dut =>
+    dut.clockDomain.forkStimulus(period = 20)
+    dut.clockDomain.assertReset()
+    dut.clockDomain.waitSampling(1)
+    dut.clockDomain.deassertReset()
+    dut.io.cmdIn.valid #= false
+    dut.io.mem.ready #= true
+    dut.clockDomain.waitSampling(5)
+
+    // Test case: fpldzerosn (load zero single, 1 cycle, shifts stack)
+    println("Testing basic pipeline with fpldzerosn")
+    
+    // Initialize inputs
+    dut.io.cmdIn.cmd #= FPUCmd.fpldzerosn
+    dut.io.cmdIn.value #= 0
+    dut.io.cmdIn.addr #= 0x100
+    dut.io.cmdIn.integerA #= 0
+    dut.io.cmdIn.integerB #= 0
+    dut.io.cmdIn.integerC #= 0
+    dut.io.cmdIn.valid #= true
+    dut.clockDomain.waitSampling(1)
+    dut.io.cmdIn.valid #= false
+
+    // Monitor pipeline stages and output
+    var cycles = 0
+    val maxCycles = 10
+    while (!dut.io.resultOut.done.toBoolean && cycles < maxCycles) {
+      println(s"Cycle $cycles: " +
+              s"n0.valid=${dut.n0.isValid.toBoolean}, " +
+              s"n1.valid=${dut.n1.isValid.toBoolean}, " +
+              s"n2.valid=${dut.n2.isValid.toBoolean}, " +
+              s"n3.valid=${dut.n3.isValid.toBoolean}, " +
+              s"n4.valid=${dut.n4.isValid.toBoolean}, " +
+              s"resultOut.done=${dut.io.resultOut.done.toBoolean}, " +
+              s"resultOut.value=0x${dut.io.resultOut.value.toBigInt.toString(16)}")
+      dut.clockDomain.waitSampling()
+      cycles += 1
+    }
+
+    // Check results
+    val result = dut.io.resultOut.value.toBigInt
+    val expected = BigInt(0) // fpldzerosn loads 0
+    val stackTop = dut.stack(0).value.toBigInt
+    assert(result == expected, s"Result mismatch: got 0x$result, expected 0x$expected")
+    assert(stackTop == expected, s"Stack top mismatch: got 0x$stackTop, expected 0x$expected")
+    assert(cycles <= 5, s"Pipeline took too long: $cycles cycles") // 5 stages max
+    println(s"PASS: Pipeline completed in $cycles cycles, result=0x$result, stack[0]=0x$stackTop")
+  }
+}
