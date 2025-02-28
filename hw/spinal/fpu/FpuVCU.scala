@@ -3,15 +3,15 @@ package fpu
 import spinal.core._
 import spinal.lib._
 
-case class FpuVCU(param: FloatUnpackedParam) extends Component {
+case class FpuVCU() extends Component {
   val io = new Bundle {
     val operandA = in Bits(64 bits)
     val operandB = in Bits(64 bits)
     val opcode = in Bits(2 bits)
     val isDouble = in Bool()
-    val normOperandA = out(FloatUnpacked(param))
-    val normOperandB = out(FloatUnpacked(param))
-    val result = out(FloatUnpacked(param))
+    val normOperandA = out(FloatUnpacked())
+    val normOperandB = out(FloatUnpacked())
+    val result = out(FloatUnpacked())
     val abort = out Bool()
     val restart = out Bool()
   }.setName("")
@@ -27,28 +27,28 @@ case class FpuVCU(param: FloatUnpackedParam) extends Component {
 
   io.normOperandA := aUnpacked
   io.normOperandB := bUnpacked
-  io.result := FpuUtils.generateSpecialValue(FloatMode.ZERO, False, param)
+  io.result := FpuUtils.generateSpecialValue(FloatMode.ZERO, False)
   io.abort := False
   io.restart := False
 
   when(isNaNA || isNaNB) {
     io.abort := True
-    io.result := FpuUtils.generateSpecialValue(FloatMode.NAN, (isNaNA && aUnpacked.sign) || (isNaNB && bUnpacked.sign), param)
+    io.result := FpuUtils.generateSpecialValue(FloatMode.NAN, (isNaNA && aUnpacked.sign) || (isNaNB && bUnpacked.sign))
   } elsewhen(isInfA || isInfB) {
     when(isInfA && isInfB && io.opcode === B"01" && aUnpacked.sign =/= bUnpacked.sign) {
       io.abort := True
-      io.result := FpuUtils.generateSpecialValue(FloatMode.NAN, False, param)
+      io.result := FpuUtils.generateSpecialValue(FloatMode.NAN, False)
     } otherwise {
       io.abort := True
-      io.result := FpuUtils.generateSpecialValue(FloatMode.INF, aUnpacked.sign ^ (io.opcode === B"01" && bUnpacked.sign), param)
+      io.result := FpuUtils.generateSpecialValue(FloatMode.INF, aUnpacked.sign ^ (io.opcode === B"01" && bUnpacked.sign))
     }
   } elsewhen(isZeroA || isZeroB) {
     when(isZeroA && isZeroB) {
       io.abort := True
-      io.result := FpuUtils.generateSpecialValue(FloatMode.ZERO, aUnpacked.sign && bUnpacked.sign, param)
+      io.result := FpuUtils.generateSpecialValue(FloatMode.ZERO, aUnpacked.sign && bUnpacked.sign)
     } elsewhen((isZeroA || isZeroB) && (isInfA || isInfB)) {
       io.abort := True
-      io.result := FpuUtils.generateSpecialValue(FloatMode.NAN, False, param)
+      io.result := FpuUtils.generateSpecialValue(FloatMode.NAN, False)
     } elsewhen(isZeroA && io.opcode === B"00") {
       io.abort := True
       io.result := bUnpacked
@@ -59,12 +59,12 @@ case class FpuVCU(param: FloatUnpackedParam) extends Component {
   } elsewhen(isDenormA || isDenormB) {
     io.restart := True
     when(isDenormA) {
-      val (normMant, normExp) = FpuUtils.normalizeWithAFix(aUnpacked.mantissa, aUnpacked.exponent, param.mantissaWidth)
+      val (normMant, normExp) = FpuUtils.normalizeWithAFix(aUnpacked.mantissa, aUnpacked.exponent, FPUConfig.mantissaWidth + 4)
       io.normOperandA.mantissa := normMant
       io.normOperandA.exponent := normExp
     }
     when(isDenormB) {
-      val (normMant, normExp) = FpuUtils.normalizeWithAFix(bUnpacked.mantissa, bUnpacked.exponent, param.mantissaWidth)
+      val (normMant, normExp) = FpuUtils.normalizeWithAFix(bUnpacked.mantissa, bUnpacked.exponent, FPUConfig.mantissaWidth + 4)
       io.normOperandB.mantissa := normMant
       io.normOperandB.exponent := normExp
     }

@@ -35,9 +35,9 @@ class Pipeline extends Component {
   val RESULT_SIGN = Payload(Bool())
   val RESULT_MANT = Payload(UInt(FPUConfig.mantissaWidth + 4 bits))
   val INT_RESULT = Payload(UInt(32 bits))
-  val PARTIAL_PRODUCTS = Payload(Vec(AFix.S(2 * (FPUConfig.mantissaWidth + 4) - 1 downto 0 bits), 28))
-  val STAGE1_SUM = Payload(AFix.S(2 * (FPUConfig.mantissaWidth + 4) - 1 downto 0 bits))
-  val STAGE2_SUM = Payload(AFix.S(2 * (FPUConfig.mantissaWidth + 4) - 1 downto 0 bits))
+  val PARTIAL_PRODUCTS = Payload(Vec(AFix.S((2 * (FPUConfig.mantissaWidth + 4)) bits), 28))
+  val STAGE1_SUM = Payload(AFix.S((2 * (FPUConfig.mantissaWidth + 4)) bits))
+  val STAGE2_SUM = Payload(AFix.S((2 * (FPUConfig.mantissaWidth + 4)) bits))
   val MUL_OVERFLOW = Payload(Bool())
 
   val io = new Bundle {
@@ -85,25 +85,24 @@ class Pipeline extends Component {
   val dividerPlugin = new DividerPlugin()
   val outputPlugin = new OutputPlugin()
 
-  build(s01, s12, s23, s34 :: microcodePlugin :: inputPlugin :: preprocessPlugin :: vcuPlugin :: adderPlugin :: multiplierPlugin :: dividerPlugin :: outputPlugin :: Nil)
+  Builder(s01, s12, s23, s34, microcodePlugin, inputPlugin, preprocessPlugin, vcuPlugin, adderPlugin, multiplierPlugin, dividerPlugin, outputPlugin)
 }
 
 class MicrocodePlugin extends FiberPlugin {
-  val rom = Mem(Bits(32 bits), 256) // ~12,000 bits as per T9000 (Section 2)
+  val rom = Mem(Bits(32 bits), 256)
   val MICROCODE = Payload(Bits(32 bits))
 
   override def build(pipeline: Pipeline): Unit = {
     import pipeline._
 
     val pc = Reg(UInt(8 bits)) init(0)
-    val cmd = n0.insert(pipeline.CMD)
+    val cmd = n0(CMD)
 
-    rom.write(pc + 1, B"32'h0", enable = False) // Dummy write to satisfy SpinalHDL
-    MICROCODE := rom.readAsync(cmd.asUInt.resize(8))
+    rom.write(pc + 1, B"32'h0", enable = False) // Dummy write
+    n0(MICROCODE) := rom.readAsync(cmd.asUInt.resize(8))
     pc := cmd.asUInt.resize(8)
 
-    pipeline.MICRO_OP.stageEnable := MICROCODE(4 downto 0)
-    // Bits 5-31 reserved for future microcode control (e.g., multi-pass ops)
+    n0(MICRO_OP).stageEnable := n0(MICROCODE)(4 downto 0)
   }
 }
 
@@ -112,14 +111,14 @@ class InputPlugin extends FiberPlugin {
     import pipeline._
 
     n0.build {
-      when(io.cmdIn.valid && MICRO_OP.stageEnable(0)) {
-        CMD.insert(io.cmdIn.cmd)
-        CMD_VALUE.insert(io.cmdIn.value)
-        CMD_ADDR.insert(io.cmdIn.addr)
-        IAREG.insert(io.cmdIn.integerA)
-        IBREG.insert(io.cmdIn.integerB)
-        ICREG.insert(io.cmdIn.integerC)
-        MICRO_OP.insert(MicroOpBundle().set(
+      when(io.cmdIn.valid && n0(MICRO_OP).stageEnable(0)) {
+        n0(CMD) := io.cmdIn.cmd
+        n0(CMD_VALUE) := io.cmdIn.value
+        n0(CMD_ADDR) := io.cmdIn.addr
+        n0(IAREG) := io.cmdIn.integerA
+        n0(IBREG) := io.cmdIn.integerB
+        n0(ICREG) := io.cmdIn.integerC
+        n0(MICRO_OP) := MicroOpBundle().set(
           cmd = io.cmdIn.cmd,
           latencySingle = FPUConfig.latencyFor(io.cmdIn.cmd)._1,
           latencyDouble = FPUConfig.latencyFor(io.cmdIn.cmd)._2,
@@ -129,8 +128,8 @@ class InputPlugin extends FiberPlugin {
           memRead = FPUConfig.memReadFor(io.cmdIn.cmd),
           memWrite = FPUConfig.memWriteFor(io.cmdIn.cmd),
           useInteger = FPUConfig.useIntegerFor(io.cmdIn.cmd),
-          stageEnable = B"00001" // n0 active
-        ))
+          stageEnable = B"00001"
+        )
         io.cmdIn.ready := True
         when(io.cmdIn.cmd === FPUCmd.fpldzerosn) {
           stack(0).value := 0
@@ -146,20 +145,20 @@ class PreprocessPlugin extends FiberPlugin {
     import pipeline._
 
     n1.build {
-      when(isValid && MICRO_OP.stageEnable(1)) {
-        EXP_A.insert(CMD_VALUE(62 downto 52).asSInt.resize(FPUConfig.exponentWidth + 2))
-        EXP_B.insert(stack(0).value(62 downto 52).asSInt.resize(FPUConfig.exponentWidth + 2))
-        MANT_A.insert(Cat(U(1, 1 bit), CMD_VALUE(51 downto 0), U(0, 4 bits)).asUInt)
-        MANT_B.insert(Cat(U(1, 1 bit), stack(0).value(51 downto 0), U(0, 4 bits)).asUInt)
-        SIGN_A.insert(CMD_VALUE(63))
-        SIGN_B.insert(stack(0).value(63))
+      when(n1.isValid && n1(MICRO_OP).stageEnable(1)) {
+        n1(EXP_A) := n1(CMD_VALUE)(62 downto 52).asSInt.resize(FPUConfig.exponentWidth + 2)
+        n1(EXP_B) := stack(0).value(62 downto 52).asSInt.resize(FPUConfig.exponentWidth + 2)
+        n1(MANT_A) := Cat(U(1, 1 bit), n1(CMD_VALUE)(51 downto 0), U(0, 4 bits)).asUInt
+        n1(MANT_B) := Cat(U(1, 1 bit), stack(0).value(51 downto 0), U(0, 4 bits)).asUInt
+        n1(SIGN_A) := n1(CMD_VALUE)(63)
+        n1(SIGN_B) := stack(0).value(63)
       }
     }
   }
 }
 
 class VCUPlugin extends FiberPlugin {
-  val vcu = new FpuVCU(FloatUnpackedParam())
+  val vcu = new FpuVCU()
   override def build(pipeline: Pipeline): Unit = {
     import pipeline._
 
@@ -169,36 +168,36 @@ class VCUPlugin extends FiberPlugin {
     vcu.io.isDouble := stack(0).typeTag === FpuFormat.DOUBLE
 
     n2.build {
-      when(isValid && MICRO_OP.stageEnable(2) && (CMD === FPUCmd.fpadd || CMD === FPUCmd.fpsub || 
-           CMD === FPUCmd.fpmul || CMD === FPUCmd.fpdiv || 
-           CMD === FPUCmd.fpldnladddb || CMD === FPUCmd.fpldnladdsn ||
-           CMD === FPUCmd.fpldnlmuldb || CMD === FPUCmd.fpldnlmulsn)) {
+      when(n2.isValid && n2(MICRO_OP).stageEnable(2) && (n2(CMD) === FPUCmd.fpadd || n2(CMD) === FPUCmd.fpsub || 
+           n2(CMD) === FPUCmd.fpmul || n2(CMD) === FPUCmd.fpdiv || 
+           n2(CMD) === FPUCmd.fpldnladddb || n2(CMD) === FPUCmd.fpldnladdsn ||
+           n2(CMD) === FPUCmd.fpldnlmuldb || n2(CMD) === FPUCmd.fpldnlmulsn)) {
         when(vcu.io.abort) {
           val (isZero, isNaN, isInf, _) = FpuUtils.isSpecial(vcu.io.result)
           when(isInf) {
-            RESULT_EXP.insert(S((1 << FPUConfig.exponentWidth) - 1, FPUConfig.exponentWidth + 2 bits))
-            RESULT_SIGN.insert(vcu.io.result.sign)
-            RESULT_MANT.insert(U(0, FPUConfig.mantissaWidth + 4 bits))
-            when(CMD === FPUCmd.fpdiv) {
+            n2(RESULT_EXP) := S((1 << FPUConfig.exponentWidth) - 1, FPUConfig.exponentWidth + 2 bits)
+            n2(RESULT_SIGN) := vcu.io.result.sign
+            n2(RESULT_MANT) := U(0, FPUConfig.mantissaWidth + 4 bits)
+            when(n2(CMD) === FPUCmd.fpdiv) {
               exceptions.divideByZero := True
               exceptions.fpError := True
               exceptions.excCode := ExceptionCodes.divideByZero
-            } elsewhen(CMD === FPUCmd.fpsub && isNaN) {
+            } elsewhen(n2(CMD) === FPUCmd.fpsub && isNaN) {
               exceptions.invalidOp := True
               exceptions.fpError := True
               exceptions.excCode := ExceptionCodes.invalidOp
             }
           } elsewhen(isNaN) {
-            RESULT_EXP.insert(S((1 << FPUConfig.exponentWidth) - 1, FPUConfig.exponentWidth + 2 bits))
-            RESULT_SIGN.insert(vcu.io.result.sign)
-            RESULT_MANT.insert(vcu.io.result.mantissa)
+            n2(RESULT_EXP) := S((1 << FPUConfig.exponentWidth) - 1, FPUConfig.exponentWidth + 2 bits)
+            n2(RESULT_SIGN) := vcu.io.result.sign
+            n2(RESULT_MANT) := vcu.io.result.mantissa
             exceptions.invalidOp := True
             exceptions.fpError := True
             exceptions.excCode := ExceptionCodes.invalidOp
           } elsewhen(isZero) {
-            RESULT_EXP.insert(S(0, FPUConfig.exponentWidth + 2 bits))
-            RESULT_SIGN.insert(vcu.io.result.sign)
-            RESULT_MANT.insert(U(0, FPUConfig.mantissaWidth + 4 bits))
+            n2(RESULT_EXP) := S(0, FPUConfig.exponentWidth + 2 bits)
+            n2(RESULT_SIGN) := vcu.io.result.sign
+            n2(RESULT_MANT) := U(0, FPUConfig.mantissaWidth + 4 bits)
           }
         }
       }
@@ -211,22 +210,18 @@ class AdderPlugin extends FiberPlugin {
     import pipeline._
 
     n2.build {
-      when(isValid && MICRO_OP.stageEnable(2) && (CMD === FPUCmd.fpadd || CMD === FPUCmd.fpsub || 
-           CMD === FPUCmd.fpldnladddb || CMD === FPUCmd.fpldnladdsn)) {
+      when(n2.isValid && n2(MICRO_OP).stageEnable(2) && (n2(CMD) === FPUCmd.fpadd || n2(CMD) === FPUCmd.fpsub || 
+           n2(CMD) === FPUCmd.fpldnladddb || n2(CMD) === FPUCmd.fpldnladdsn)) {
         val (expDiff, aGreater) = FpuUtils.exponentDifference(n2(EXP_A), n2(EXP_B))
         val alignedMantA = Mux(aGreater, n2(MANT_A), n2(MANT_A) >> expDiff.abs)
         val alignedMantB = Mux(aGreater, n2(MANT_B) >> expDiff.abs, n2(MANT_B))
-        val sum = FpuUtils.radix4CarryPropagateAdd(
-          AFix.U(alignedMantA),
-          AFix.U(alignedMantB),
-          CMD === FPUCmd.fpsub
-        )
-        val normShift = FpuUtils.predictNormalizationDistance(AFix.U(n2(MANT_A)), AFix.U(n2(MANT_B)), CMD === FPUCmd.fpsub)
+        val sum = FpuUtils.radix4CarryPropagateAdd(alignedMantA, alignedMantB, n2(CMD) === FPUCmd.fpsub)
+        val normShift = FpuUtils.predictNormalizationDistance(n2(MANT_A), n2(MANT_B), n2(CMD) === FPUCmd.fpsub)
         val (normMant, normExp) = FpuUtils.normalizeWithAFix(sum, Mux(aGreater, n2(EXP_A), n2(EXP_B)), FPUConfig.mantissaWidth + 4)
-        RESULT_EXP.insert(normExp)
-        RESULT_SIGN.insert(n2(SIGN_A) ^ (CMD === FPUCmd.fpsub && !aGreater))
-        RESULT_MANT.insert(normMant.asUInt)
-        when(sum.asBits(1 downto 0) =/= 0) {
+        n2(RESULT_EXP) := normExp
+        n2(RESULT_SIGN) := n2(SIGN_A) ^ (n2(CMD) === FPUCmd.fpsub && !aGreater)
+        n2(RESULT_MANT) := normMant
+        when(sum(1 downto 0) =/= 0) {
           exceptions.inexact := True
           exceptions.excCode := ExceptionCodes.inexact
         }
@@ -240,14 +235,14 @@ class DividerPlugin extends FiberPlugin {
     import pipeline._
 
     n2.build {
-      when(isValid && MICRO_OP.stageEnable(2) && (CMD === FPUCmd.fpdiv || CMD === FPUCmd.fpsqrt)) {
-        val divExpRaw = Mux(CMD === FPUCmd.fpsqrt,
+      when(n2.isValid && n2(MICRO_OP).stageEnable(2) && (n2(CMD) === FPUCmd.fpdiv || n2(CMD) === FPUCmd.fpsqrt)) {
+        val divExpRaw = Mux(n2(CMD) === FPUCmd.fpsqrt,
           ((n2(EXP_A) - S(FPUConfig.bias, FPUConfig.exponentWidth + 2 bits)) >> 1) + S(FPUConfig.bias, FPUConfig.exponentWidth + 2 bits),
           n2(EXP_A) - n2(EXP_B) + S(FPUConfig.bias, FPUConfig.exponentWidth + 2 bits)
         )
-        RESULT_EXP.insert(divExpRaw)
-        RESULT_SIGN.insert(n2(SIGN_A) ^ n2(SIGN_B))
-        RESULT_MANT.insert(n2(MANT_A)) // Placeholder
+        n2(RESULT_EXP) := divExpRaw
+        n2(RESULT_SIGN) := n2(SIGN_A) ^ n2(SIGN_B)
+        n2(RESULT_MANT) := n2(MANT_A) // Placeholder
       }
     }
   }
@@ -257,41 +252,41 @@ class MultiplierPlugin extends FiberPlugin {
   override def build(pipeline: Pipeline): Unit = {
     import pipeline._
 
-    val multiplierStart = n2.isValid && MICRO_OP.stageEnable(2) && (n2(CMD) === FPUCmd.fpmul || n2(CMD) === FPUCmd.fpldnlmuldb || n2(CMD) === FPUCmd.fpldnlmulsn)
+    val multiplierStart = n2.isValid && n2(MICRO_OP).stageEnable(2) && (n2(CMD) === FPUCmd.fpmul || n2(CMD) === FPUCmd.fpldnlmuldb || n2(CMD) === FPUCmd.fpldnlmulsn)
     val isDouble = stack(0).typeTag === FpuFormat.DOUBLE
-    val numPartialProducts = Mux(isDouble, U(28), U(13))
+    val numPartialProducts = Mux(isDouble, U(28, 6 bits), U(13, 6 bits))
 
     n2.build {
       when(multiplierStart) {
-        val (partials, correction) = FpuUtils.boothRecodeRadix4(AFix.U(n2(MANT_B)), FPUConfig.mantissaWidth + 4)
-        PARTIAL_PRODUCTS.insert(Vec.tabulate(28)(i => 
+        val (partials, correction) = FpuUtils.boothRecodeRadix4(n2(MANT_B), FPUConfig.mantissaWidth + 4)
+        n2(PARTIAL_PRODUCTS) := Vec.tabulate(28)(i => 
           if (i < numPartialProducts.toInt) partials(i) << (2 * i) else correction << (2 * i)
-        ))
+        )
       }
     }
 
     n3.build {
-      when(n2.isValid && MICRO_OP.stageEnable(3)) {
+      when(n2.isValid && n3(MICRO_OP).stageEnable(3)) {
         val (carry1, save1) = FpuUtils.carrySaveReduce7to2(n3(PARTIAL_PRODUCTS), 0, 7)
         val (carry2, save2) = FpuUtils.carrySaveReduce7to2(n3(PARTIAL_PRODUCTS), 7, 7)
-        STAGE1_SUM.insert(Mux(isDouble, carry1 + save1 + carry2 + save2, n3(PARTIAL_PRODUCTS).reduce(_ + _)))
+        n3(STAGE1_SUM) := Mux(isDouble, carry1 + save1 + carry2 + save2, n3(PARTIAL_PRODUCTS).reduce(_ + _))
         when(isDouble) {
           val (carry3, save3) = FpuUtils.carrySaveReduce7to2(n3(PARTIAL_PRODUCTS), 14, 7)
           val (carry4, save4) = FpuUtils.carrySaveReduce7to2(n3(PARTIAL_PRODUCTS), 21, 7)
-          STAGE2_SUM.insert(n3(STAGE1_SUM) + carry3 + save3 + carry4 + save4)
+          n3(STAGE2_SUM) := n3(STAGE1_SUM) + carry3 + save3 + carry4 + save4
         } otherwise {
-          STAGE2_SUM.insert(n3(STAGE1_SUM))
+          n3(STAGE2_SUM) := n3(STAGE1_SUM)
         }
       }
     }
 
     n4.build {
-      when(n3.isValid && MICRO_OP.stageEnable(4)) {
+      when(n3.isValid && n4(MICRO_OP).stageEnable(4)) {
         val roundedMant = FpuUtils.interpolateRounding(n4(STAGE2_SUM), FPUConfig.RoundMode.NEAREST, FPUConfig.mantissaWidth + 4)
-        MUL_OVERFLOW.insert(roundedMant.asUInt(FPUConfig.mantissaWidth + 3))
-        RESULT_MANT.insert(roundedMant.asUInt)
-        RESULT_EXP.insert(n4(EXP_A) + n4(EXP_B) - S(FPUConfig.bias, FPUConfig.exponentWidth + 2 bits) + MUL_OVERFLOW.asSInt(2 bits))
-        RESULT_SIGN.insert(n4(SIGN_A) ^ n4(SIGN_B))
+        n4(MUL_OVERFLOW) := roundedMant.asUInt(FPUConfig.mantissaWidth + 3)
+        n4(RESULT_MANT) := roundedMant.asUInt
+        n4(RESULT_EXP) := n4(EXP_A) + n4(EXP_B) - S(FPUConfig.bias, FPUConfig.exponentWidth + 2 bits) + n4(MUL_OVERFLOW).asSInt(2 bits)
+        n4(RESULT_SIGN) := n4(SIGN_A) ^ n4(SIGN_B)
         when(roundedMant.asBits(1 downto 0) =/= 0) {
           exceptions.inexact := True
           exceptions.excCode := ExceptionCodes.inexact
@@ -317,14 +312,14 @@ class OutputPlugin extends FiberPlugin {
       io.resultOut.valid := operationActive && latencyCounter === latency
       io.resultOut.payload.value := finalResult
       io.resultOut.payload.done := operationActive && latencyCounter === latency
-      io.resultOut.payload.integerResult := INT_RESULT
+      io.resultOut.payload.integerResult := n4(INT_RESULT)
 
-      when(isValid && MICRO_OP.stageEnable(4) && !operationActive) {
+      when(n4.isValid && n4(MICRO_OP).stageEnable(4) && !operationActive) {
         latencyCounter := 1
         operationActive := True
-        latchedResultExp := RESULT_EXP
-        latchedResultSign := RESULT_SIGN
-        latchedResultMant := RESULT_MANT
+        latchedResultExp := n4(RESULT_EXP)
+        latchedResultSign := n4(RESULT_SIGN)
+        latchedResultMant := n4(RESULT_MANT)
       } elsewhen(operationActive && latencyCounter < latency) {
         latencyCounter := latencyCounter + 1
       } otherwise {
@@ -332,12 +327,12 @@ class OutputPlugin extends FiberPlugin {
         operationActive := False
       }
 
-      when(isValid && io.resultOut.payload.done) {
+      when(n4.isValid && io.resultOut.payload.done) {
         when(exceptions.fpError) {
           when(exceptions.divideByZero) {
-            io.resultOut.payload.value := Cat(RESULT_SIGN, U((1 << FPUConfig.exponentWidth) - 1, FPUConfig.exponentWidth bits), U(0, FPUConfig.mantissaWidth bits)).resize(64 bits)
+            io.resultOut.payload.value := Cat(n4(RESULT_SIGN), U((1 << FPUConfig.exponentWidth) - 1, FPUConfig.exponentWidth bits), U(0, FPUConfig.mantissaWidth bits)).resize(64 bits)
           } elsewhen(exceptions.invalidOp) {
-            io.resultOut.payload.value := Cat(RESULT_SIGN, U((1 << FPUConfig.exponentWidth) - 1, FPUConfig.exponentWidth bits), RESULT_MANT(FPUConfig.mantissaWidth - 1 downto 0)).resize(64 bits)
+            io.resultOut.payload.value := Cat(n4(RESULT_SIGN), U((1 << FPUConfig.exponentWidth) - 1, FPUConfig.exponentWidth bits), n4(RESULT_MANT)(FPUConfig.mantissaWidth - 1 downto 0)).resize(64 bits)
           }
         }
       }
