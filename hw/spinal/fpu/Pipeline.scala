@@ -85,9 +85,7 @@ class Pipeline extends Component {
   val dividerPlugin = new DividerPlugin()
   val outputPlugin = new OutputPlugin()
 
-  val links = Seq(s01, s12, s23, s34)
-  val plugins = Seq(microcodePlugin, inputPlugin, preprocessPlugin, vcuPlugin, adderPlugin, multiplierPlugin, dividerPlugin, outputPlugin)
-  Builder(links ++ plugins)
+  Builder(s01, s12, s23, s34)
 }
 
 class MicrocodePlugin extends FiberPlugin {
@@ -101,13 +99,13 @@ class MicrocodePlugin extends FiberPlugin {
     val rom = Mem(Bits(32 bits), 256)
     val pc = Reg(UInt(8 bits)) init(0)
 
-    n0.build(new Area {
+    n0.build {
       val cmd = n0(CMD)
       rom.write(pc + 1, B"32'h0", enable = False) // Dummy write
       n0(MICROCODE) := rom.readAsync(cmd.encoding.resize(8))
       pc := cmd.encoding.resize(8)
       n0(MICRO_OP).stageEnable := n0(MICROCODE)(4 downto 0)
-    })
+    }
   }
 }
 
@@ -117,7 +115,7 @@ class InputPlugin extends FiberPlugin {
   override def build(pipeline: Pipeline): Unit = {
     import pipeline._
 
-    n0.build(new Area {
+    n0.build {
       when(io.cmdIn.valid && n0(MICRO_OP).stageEnable(0)) {
         n0(CMD) := io.cmdIn.cmd
         n0(CMD_VALUE) := io.cmdIn.value
@@ -143,7 +141,7 @@ class InputPlugin extends FiberPlugin {
           stack(0).typeTag := FpuFormat.SINGLE
         }
       }
-    })
+    }
   }
 }
 
@@ -153,7 +151,7 @@ class PreprocessPlugin extends FiberPlugin {
   override def build(pipeline: Pipeline): Unit = {
     import pipeline._
 
-    n1.build(new Area {
+    n1.build {
       when(n1.isValid && n1(MICRO_OP).stageEnable(1)) {
         n1(EXP_A) := n1(CMD_VALUE)(62 downto 52).asSInt.resize(FPUConfig.exponentWidth + 2)
         n1(EXP_B) := stack(0).value(62 downto 52).asSInt.resize(FPUConfig.exponentWidth + 2)
@@ -162,7 +160,7 @@ class PreprocessPlugin extends FiberPlugin {
         n1(SIGN_A) := n1(CMD_VALUE)(63)
         n1(SIGN_B) := stack(0).value(63)
       }
-    })
+    }
   }
 }
 
@@ -179,9 +177,9 @@ class VCUPlugin extends FiberPlugin {
     vcu.io.opcode := Mux(n2(CMD) === FPUCmd.fpadd, B"00", B"01")
     vcu.io.isDouble := stack(0).typeTag === FpuFormat.DOUBLE
 
-    n2.build(new Area {
+    n2.build {
       when(n2.isValid && n2(MICRO_OP).stageEnable(2) && (n2(CMD) === FPUCmd.fpadd || n2(CMD) === FPUCmd.fpsub || 
-           n2(CMD) === FPUCmd.fpmul || n2(CMD) === FPUCmd.fpdiv || 
+           n2(CMD) === FPUCmd.fpmul || n2(CMD) === FPUCmd.fpmul || 
            n2(CMD) === FPUCmd.fpldnladddb || n2(CMD) === FPUCmd.fpldnladdsn ||
            n2(CMD) === FPUCmd.fpldnlmuldb || n2(CMD) === FPUCmd.fpldnlmulsn)) {
         when(vcu.io.abort) {
@@ -213,7 +211,7 @@ class VCUPlugin extends FiberPlugin {
           }
         }
       }
-    })
+    }
   }
 }
 
@@ -223,7 +221,7 @@ class AdderPlugin extends FiberPlugin {
   override def build(pipeline: Pipeline): Unit = {
     import pipeline._
 
-    n2.build(new Area {
+    n2.build {
       when(n2.isValid && n2(MICRO_OP).stageEnable(2) && (n2(CMD) === FPUCmd.fpadd || n2(CMD) === FPUCmd.fpsub || 
            n2(CMD) === FPUCmd.fpldnladddb || n2(CMD) === FPUCmd.fpldnladdsn)) {
         val (expDiff, aGreater) = FpuUtils.exponentDifference(n2(EXP_A), n2(EXP_B))
@@ -240,7 +238,7 @@ class AdderPlugin extends FiberPlugin {
           exceptions.excCode := ExceptionCodes.inexact
         }
       }
-    })
+    }
   }
 }
 
@@ -250,7 +248,7 @@ class DividerPlugin extends FiberPlugin {
   override def build(pipeline: Pipeline): Unit = {
     import pipeline._
 
-    n2.build(new Area {
+    n2.build {
       when(n2.isValid && n2(MICRO_OP).stageEnable(2) && (n2(CMD) === FPUCmd.fpdiv || n2(CMD) === FPUCmd.fpsqrt)) {
         val divExpRaw = Mux(n2(CMD) === FPUCmd.fpsqrt,
           ((n2(EXP_A) - S(FPUConfig.bias, FPUConfig.exponentWidth + 2 bits)) >> 1) + S(FPUConfig.bias, FPUConfig.exponentWidth + 2 bits),
@@ -260,7 +258,7 @@ class DividerPlugin extends FiberPlugin {
         n2(RESULT_SIGN) := n2(SIGN_A) ^ n2(SIGN_B)
         n2(RESULT_MANT) := n2(MANT_A) // Placeholder
       }
-    })
+    }
   }
 }
 
@@ -274,16 +272,16 @@ class MultiplierPlugin extends FiberPlugin {
     val isDouble = stack(0).typeTag === FpuFormat.DOUBLE
     val numPartialProducts = Mux(isDouble, U(28, 6 bits), U(13, 6 bits))
 
-    n2.build(new Area {
+    n2.build {
       when(multiplierStart) {
-        val (partials, correction) = FpuUtils.boothRecodeRadix4(n2(MANT_B), FPUConfig.mantissaWidth + 4)
+        val (partials, correction) = FpuUtils.boothRecodeRadix4(n2(MANT_A), FPUConfig.mantissaWidth + 4)
         n2(PARTIAL_PRODUCTS) := Vec.tabulate(28)(i => 
           if (i < numPartialProducts.toInt) partials(i) << (2 * i) else correction << (2 * i)
         )
       }
-    })
+    }
 
-    n3.build(new Area {
+    n3.build {
       when(n2.isValid && n3(MICRO_OP).stageEnable(3)) {
         val (carry1, save1) = FpuUtils.carrySaveReduce7to2(n3(PARTIAL_PRODUCTS), 0, 7)
         val (carry2, save2) = FpuUtils.carrySaveReduce7to2(n3(PARTIAL_PRODUCTS), 7, 7)
@@ -296,9 +294,9 @@ class MultiplierPlugin extends FiberPlugin {
           n3(STAGE2_SUM) := n3(STAGE1_SUM)
         }
       }
-    })
+    }
 
-    n4.build(new Area {
+    n4.build {
       when(n3.isValid && n4(MICRO_OP).stageEnable(4)) {
         val roundedMant = FpuUtils.interpolateRounding(n4(STAGE2_SUM), FPUConfig.RoundMode.NEAREST, FPUConfig.mantissaWidth + 4)
         n4(MUL_OVERFLOW) := roundedMant.asUInt(FPUConfig.mantissaWidth + 3)
@@ -310,7 +308,7 @@ class MultiplierPlugin extends FiberPlugin {
           exceptions.excCode := ExceptionCodes.inexact
         }
       }
-    })
+    }
   }
 }
 
@@ -328,7 +326,7 @@ class OutputPlugin extends FiberPlugin {
     val operationActive = Reg(Bool()) init(False)
     val latency = Mux(stack(0).typeTag === FpuFormat.DOUBLE, n4(MICRO_OP).latencyDouble, n4(MICRO_OP).latencySingle)
 
-    n4.build(new Area {
+    n4.build {
       io.resultOut.valid := operationActive && latencyCounter === latency
       io.resultOut.payload.value := finalResult
       io.resultOut.payload.done := operationActive && latencyCounter === latency
@@ -356,7 +354,7 @@ class OutputPlugin extends FiberPlugin {
           }
         }
       }
-    })
+    }
   }
 }
 
