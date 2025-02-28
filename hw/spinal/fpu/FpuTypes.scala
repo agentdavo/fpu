@@ -40,12 +40,24 @@ object FloatUnpacked {
 
   def toFloatUnpacked(bits: Bits, format: FpuFormat.C): FloatUnpacked = {
     val f = FloatUnpacked()
-    val expWidth = format.mux(FpuFormat.SINGLE -> U(8, 4 bits), FpuFormat.DOUBLE -> U(11, 4 bits))
-    val mantWidth = format.mux(FpuFormat.SINGLE -> U(23, 6 bits), FpuFormat.DOUBLE -> U(52, 6 bits))
-    val bias = format.mux(FpuFormat.SINGLE -> U(127, 11 bits), FpuFormat.DOUBLE -> U(1023, 11 bits))
+    val expWidth = format.mux(
+      FpuFormat.SINGLE -> U(8, 4 bits),
+      FpuFormat.DOUBLE -> U(11, 4 bits)
+    )
+    val mantWidth = format.mux(
+      FpuFormat.SINGLE -> U(23, 6 bits),
+      FpuFormat.DOUBLE -> U(52, 6 bits)
+    )
+    val bias = format.mux(
+      FpuFormat.SINGLE -> U(127, 11 bits),
+      FpuFormat.DOUBLE -> U(1023, 11 bits)
+    )
     val sign = bits(63)
-    val exp = bits(62 downto 63 - expWidth).asUInt
-    val mant = bits(mantWidth - 1 downto 0).asUInt
+    val expBitsHigh = 62
+    val expBitsLow = 63 - expWidth.asUInt.toInt
+    val exp = bits(expBitsHigh downto expBitsLow).asUInt
+    val mantBitsHigh = mantWidth.asUInt.toInt - 1
+    val mant = bits(mantBitsHigh downto 0).asUInt
 
     when(exp === 0 && mant === 0) {
       f := FpuUtils.generateSpecialValue(FloatMode.ZERO, sign)
@@ -55,47 +67,56 @@ object FloatUnpacked {
       val (normMant, normExp) = FpuUtils.normalizeWithAFix(mant.resize(FPUConfig.mantissaWidth + 4), (-bias.asSInt).resize(FPUConfig.exponentWidth + 2), FPUConfig.mantissaWidth + 4)
       f.mantissa := normMant
       f.exponent := normExp
-    } elsewhen(exp === (U(1) << expWidth) - 1 && mant === 0) {
+    } elsewhen(exp === ((1 << expWidth.asUInt.toInt) - 1) && mant === 0) {
       f := FpuUtils.generateSpecialValue(FloatMode.INF, sign)
-    } elsewhen(exp === (U(1) << expWidth) - 1 && mant =/= 0) {
+    } elsewhen(exp === ((1 << expWidth.asUInt.toInt) - 1) && mant =/= 0) {
       f := FpuUtils.generateSpecialValue(FloatMode.NAN, sign)
     } otherwise {
       f.mode := FloatMode.NORMAL
       f.sign := sign
       f.exponent := (exp.asSInt - bias.asSInt).resize(FPUConfig.exponentWidth + 2)
-      f.mantissa := Cat(U(1, 1 bit), mant, U(0, FPUConfig.mantissaWidth + 4 - mantWidth - 1 bits)).asUInt.resize(FPUConfig.mantissaWidth + 4)
+      f.mantissa := Cat(U(1, 1 bit), mant, U(0, FPUConfig.mantissaWidth + 4 - mantWidth.asUInt.toInt - 1 bits)).asUInt.resize(FPUConfig.mantissaWidth + 4)
     }
     f
   }
 
   def toIEEE754(f: FloatUnpacked, format: FpuFormat.C): Bits = {
-    val expWidth = format.mux(FpuFormat.SINGLE -> U(8, 4 bits), FpuFormat.DOUBLE -> U(11, 4 bits))
-    val mantWidth = format.mux(FpuFormat.SINGLE -> U(23, 6 bits), FpuFormat.DOUBLE -> U(52, 6 bits))
-    val bias = format.mux(FpuFormat.SINGLE -> U(127, 11 bits), FpuFormat.DOUBLE -> U(1023, 11 bits))
+    val expWidth = format.mux(
+      FpuFormat.SINGLE -> U(8, 4 bits),
+      FpuFormat.DOUBLE -> U(11, 4 bits)
+    )
+    val mantWidth = format.mux(
+      FpuFormat.SINGLE -> U(23, 6 bits),
+      FpuFormat.DOUBLE -> U(52, 6 bits)
+    )
+    val bias = format.mux(
+      FpuFormat.SINGLE -> U(127, 11 bits),
+      FpuFormat.DOUBLE -> U(1023, 11 bits)
+    )
     val result = Bits(64 bits)
-    val expBits = UInt(expWidth bits)
-    val mantBits = UInt(mantWidth bits)
+    val expBits = Bits(expWidth.asUInt.toInt bits)
+    val mantBits = Bits(mantWidth.asUInt.toInt bits)
 
     when(f.mode === FloatMode.ZERO) {
       expBits := 0
       mantBits := 0
     } elsewhen(f.mode === FloatMode.INF) {
-      expBits := (U(1) << expWidth) - 1
+      expBits := ((1 << expWidth.asUInt.toInt) - 1)
       mantBits := 0
     } elsewhen(f.mode === FloatMode.NAN) {
-      expBits := (U(1) << expWidth) - 1
-      mantBits := f.mantissa(mantWidth - 1 downto 0) | (f.quiet ? U(1) << (mantWidth - 1) | U(0))
+      expBits := ((1 << expWidth.asUInt.toInt) - 1)
+      mantBits := f.mantissa(mantWidth.asUInt.toInt - 1 downto 0) | (f.quiet ? (U(1) << (mantWidth.asUInt.toInt - 1)) | U(0))
     } otherwise {
       val expAdjusted = f.exponent + bias.asSInt
-      when(expAdjusted.asUInt > ((U(1) << expWidth) - 1)) {
-        expBits := (U(1) << expWidth) - 1
+      when(expAdjusted.asUInt > ((1 << expWidth.asUInt.toInt) - 1)) {
+        expBits := ((1 << expWidth.asUInt.toInt) - 1)
         mantBits := 0
       } otherwise {
-        expBits := expAdjusted.asUInt.resize(expWidth)
-        mantBits := f.mantissa(mantWidth - 1 downto 0)
+        expBits := expAdjusted.asUInt.resize(expWidth.asUInt.toInt)
+        mantBits := f.mantissa(mantWidth.asUInt.toInt - 1 downto 0)
       }
     }
-    result := f.sign ## expBits ## mantBits ## U(0, 64 - 1 - expWidth - mantWidth bits)
+    result := f.sign ## expBits ## mantBits ## U(0, (64 - 1 - expWidth.asUInt.toInt - mantWidth.asUInt.toInt) bits)
   }
 }
 
@@ -124,7 +145,7 @@ case class FPstatusReg() extends Bundle {
   val fpcType = FpuFormat()
   val reserved = Bits(24 bits)
 
-  def init(roundMode: FPUConfig.RoundMode.E, fpaType: FpuFormat.E, fpbType: FpuFormat.E, fpcType: FpuFormat.E, reserved: BigInt): FPstatusReg = {
+  def set(roundMode: FPUConfig.RoundMode.E, fpaType: FpuFormat.E, fpbType: FpuFormat.E, fpcType: FpuFormat.E, reserved: BigInt): FPstatusReg = {
     this.roundMode := roundMode
     this.fpaType := fpaType
     this.fpbType := fpbType

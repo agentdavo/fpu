@@ -55,24 +55,24 @@ object FpuUtils {
 
   def boothRecodeRadix4(multiplier: UInt, width: Int): (Vec[AFix], AFix) = {
     val partialCount = (width + 1) / 2 + 1
-    val recoded = Vec(AFix.S((2 * width - 1) bits), partialCount - 1)
+    val recoded = Vec(AFix.S((2 * width) bits), partialCount - 1)
     val padded = Cat(multiplier.resize(width), U(0, 1 bit)).asUInt
-    val correction = Reg(AFix.S((2 * width - 1) bits)) init(0)
-    val multiplierAFix = AFix.U(multiplier.resize(width))
+    val correction = Reg(AFix.S((2 * width) bits)) init(0)
+    val multiplierAFix = AFix.U(multiplier.resize(width bits))
     for (i <- 0 until partialCount - 1) {
       val bits = padded(2 * i + 2 downto 2 * i)
       recoded(i) := bits.mux(
-        0 -> AFix.S(U(0, 2 * width bits)),
+        0 -> AFix.S(U(0, (2 * width) bits)),
         1 -> multiplierAFix,
         2 -> multiplierAFix,
         3 -> (multiplierAFix << 1),
         4 -> -(multiplierAFix << 1),
         5 -> -multiplierAFix,
         6 -> -multiplierAFix,
-        7 -> AFix.S(U(0, 2 * width bits))
+        7 -> AFix.S(U(0, (2 * width) bits))
       )
       when(bits === 4 || bits === 5 || bits === 6) {
-        correction := correction | AFix.S(U(1) << (2 * i), (2 * width - 1) bits)
+        correction := correction | AFix.S(U(1) << (2 * i), (2 * width) bits)
       }
     }
     (recoded, correction)
@@ -80,7 +80,7 @@ object FpuUtils {
 
   def carrySaveReduce7to2(partials: Vec[AFix], startIdx: Int, count: Int): (AFix, AFix) = {
     require(count <= 7, "T9000 7:2 array supports up to 7 inputs")
-    val width = partials(0).getWidth
+    val width = partials(0).getBitsWidth
     val sum = Vec(partials.slice(startIdx, startIdx + count)).reduce(_ + _)
     (sum, AFix.S(U(0, width bits)))
   }
@@ -118,8 +118,8 @@ object FpuUtils {
       val aPair = aFix.asBits(2 * i + 1 downto 2 * i)
       val bPair = bEffective.asBits(2 * i + 1 downto 2 * i)
       val localSum = aPair.asSInt + bPair.asSInt + carry.asBits(2 * i).asSInt
-      sum.asBits(2 * i + 1 downto 2 * i) := localSum(1 downto 0)
-      carry.asBits(2 * i + 2) := localSum(2)
+      sum(2 * i + 1 downto 2 * i) := localSum(1 downto 0)
+      carry(2 * i + 2) := localSum(2)
     }
     sum
   }
@@ -157,8 +157,8 @@ object FpuUtils {
   }
 
   def progressiveCarryAssimilate(qPositive: AFix, qNegative: AFix, qDigit: SInt, width: Int): (AFix, AFix) = {
-    val qPosNext = qPositive << 2 | Mux(qDigit >= 0, AFix.S(qDigit.resize(width bits)), AFix.S(U(0, width bits)))
-    val qNegNext = qNegative << 2 | Mux(qDigit < 0, AFix.S((-qDigit).resize(width bits)), AFix.S(U(0, width bits)))
+    val qPosNext = qPositive << 2 | Mux(qDigit >= 0, AFix.S(qDigit.resize(width)), AFix.S(U(0, width bits)))
+    val qNegNext = qNegative << 2 | Mux(qDigit < 0, AFix.S((-qDigit).resize(width)), AFix.S(U(0, width bits)))
     (qPosNext.trim(width bits), qNegNext.trim(width bits))
   }
 }
