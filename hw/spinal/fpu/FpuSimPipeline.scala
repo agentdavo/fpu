@@ -5,6 +5,7 @@ import spinal.lib._
 import spinal.core.sim._
 
 object FpuSimPipeline extends App {
+
   val param = FloatUnpackedParam()
 
   case class FPUTestVector(
