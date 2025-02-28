@@ -10,7 +10,6 @@ class Fpu extends Component with PluginHost {
   import pipeline._
 
   // Add plugins
-  val inputPlugin = add(new InputPlugin)
   val preprocessPlugin = add(new PreprocessPlugin)
   val vcuPlugin = add(new VCUPlugin)
   val adderPlugin = add(new AdderPlugin)
@@ -22,59 +21,6 @@ class Fpu extends Component with PluginHost {
   override def postBuild(): Unit = {
     super.postBuild()
     pipeline.build()
-  }
-}
-
-// Input handling plugin (n0)
-class InputPlugin extends FiberPlugin {
-  override def build(): Unit = {
-    val pipeline = host[Pipeline]
-    import pipeline._
-
-    n0.arbitrateFrom(io.cmdIn)
-    val stage0 = new n0.Area {
-      CMD := io.cmdIn.cmd
-      CMD_VALUE := io.cmdIn.value
-      CMD_ADDR := io.cmdIn.addr
-      MICRO_OP := microcode.readAsync(io.cmdIn.cmd.asBits.asUInt)
-      IAREG := io.cmdIn.integerA
-      IBREG := io.cmdIn.integerB
-      ICREG := io.cmdIn.integerC
-
-      io.mem.addr := CMD_ADDR
-      io.mem.read := MICRO_OP.memRead && isValid
-      io.mem.write := MICRO_OP.memWrite && isValid
-      io.mem.valid := (MICRO_OP.memRead || MICRO_OP.memWrite) && isValid
-      io.mem.dataIn := stack(0).value
-
-      when(isFiring) {
-        FpuUtils.clearExceptions(exceptions)
-        areg := IAREG
-        breg := IBREG
-        creg := ICREG
-        when(MICRO_OP.shiftStack) {
-          stack(2) := stack(1)
-          stack(1) := stack(0)
-          stack(0).value := CMD_VALUE
-          stack(0).typeTag := Mux(CMD === FPUCmd.fpldnlmulsn, U(0, 2 bits), U(1, 2 bits))
-        }
-        when(MICRO_OP.popStack) {
-          when(stack(0).typeTag === 0 && stack(1).typeTag === 0) {
-            exceptions.invalidOp := True
-            exceptions.fpError := True
-            exceptions.excCode := ExceptionCodes.invalidOp
-          } otherwise {
-            stack(0) := stack(1)
-            stack(1) := stack(2)
-            stack(2).value := CMD_VALUE
-            stack(2).typeTag := Mux(CMD === FPUCmd.fpldnladdsn || CMD === FPUCmd.fpldnlmulsn, U(0, 2 bits), U(1, 2 bits))
-          }
-        }
-        fpStatus.fpaType := stack(0).typeTag
-        fpStatus.fpbType := stack(1).typeTag
-        fpStatus.fpcType := stack(2).typeTag
-      }
-    }
   }
 }
 
