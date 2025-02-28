@@ -23,6 +23,11 @@ object FPUCmd extends SpinalEnum {
   )
 }
 
+object RoundMode extends SpinalEnum {
+  val NEAREST, ZERO, PLUS, MINUS = newElement()
+  defaultEncoding = SpinalEnumEncoding("T9000RoundMode")(NEAREST -> 0, ZERO -> 1, PLUS -> 2, MINUS -> 3)
+}
+
 object ExceptionCodes {
   val divideByZero = 1
   val overflow = 2
@@ -33,11 +38,11 @@ object ExceptionCodes {
 
 object FPUConfig {
   val exponentWidth = 11
-  val mantissaWidth = 57 // T9000: 53 + 4 guard bits (Section 5)
-  val stackSize = 3      // T9000: 3-element stack (Section 2)
+  val mantissaWidth = 57
+  val stackSize = 3
   val nanMaskValue = BigInt("8000000000000", 16)
   val bias = 1023
-  val clockFreqMHz = 50  // T9000: 50 MHz (Section 1)
+  val clockFreqMHz = 50
 
   case class MemoryInterface() extends Bundle with IMasterSlave {
     val addr = UInt(32 bits)
@@ -54,56 +59,56 @@ object FPUConfig {
     }
   }
 
-  def latencyFor(cmd: FPUCmd.E): (Int, Int) = cmd match { // (single, double)
-    case FPUCmd.fpadd => (2, 2)        // Table 11.30
-    case FPUCmd.fpsub => (2, 2)        // Table 11.30
-    case FPUCmd.fpmul => (2, 3)        // Table 11.30
-    case FPUCmd.fpdiv => (5, 15)       // Table 11.30
-    case FPUCmd.fpsqrt => (5, 15)      // Table 11.32
-    case FPUCmd.fpldnlsn => (2, 2)     // Table 11.24
-    case FPUCmd.fpldnldb => (2, 2)     // Table 11.24
-    case FPUCmd.fpldnlsni => (2, 2)    // Table 11.24
-    case FPUCmd.fpldnldbi => (2, 2)    // Table 11.24
-    case FPUCmd.fpldzerosn => (1, 1)   // Table 11.24
-    case FPUCmd.fpldzerodb => (1, 1)   // Table 11.24
-    case FPUCmd.fpldnladdsn => (3, 3)  // Table 11.24
-    case FPUCmd.fpldnladddb => (3, 3)  // Table 11.24
-    case FPUCmd.fpldnlmulsn => (2, 2)  // Table 11.24
-    case FPUCmd.fpldnlmuldb => (3, 3)  // Table 11.24
-    case FPUCmd.fpstnlsn => (2, 2)     // Table 11.24
-    case FPUCmd.fpstnldb => (2, 2)     // Table 11.24
-    case FPUCmd.fpstnli32 => (2, 2)    // Table 11.24
-    case FPUCmd.fpentry => (1, 1)      // Table 11.25 (assumed)
-    case FPUCmd.fprev => (1, 1)        // Table 11.25
-    case FPUCmd.fpdup => (1, 1)        // Table 11.25
-    case FPUCmd.fprn => (1, 1)         // Table 11.26
-    case FPUCmd.fprz => (1, 1)         // Table 11.26
-    case FPUCmd.fprp => (1, 1)         // Table 11.26
-    case FPUCmd.fprm => (1, 1)         // Table 11.26
-    case FPUCmd.fpabs => (1, 1)        // Table 11.30
-    case FPUCmd.fpexpinc32 => (2, 2)   // Table 11.30
-    case FPUCmd.fpexpdec32 => (2, 2)   // Table 11.30
-    case FPUCmd.fpmulby2 => (2, 2)     // Table 11.30
-    case FPUCmd.fpdivby2 => (2, 2)     // Table 11.30
-    case FPUCmd.fprtoi32 => (2, 4)     // Table 11.29
-    case FPUCmd.fpi32tor32 => (2, 4)   // Table 11.29
-    case FPUCmd.fpi32tor64 => (2, 2)   // Table 11.29
-    case FPUCmd.fpb32tor64 => (2, 2)   // Table 11.29
-    case FPUCmd.fpnoround => (2, 2)    // Table 11.29
-    case FPUCmd.fpint => (2, 4)        // Table 11.29
-    case FPUCmd.fpgt => (1, 1)         // Table 11.28
-    case FPUCmd.fpeq => (1, 1)         // Table 11.28
-    case FPUCmd.fpordered => (1, 1)    // Table 11.28
-    case FPUCmd.fpnan => (1, 1)        // Table 11.28
-    case FPUCmd.fpnotfinite => (1, 1)  // Table 11.28
-    case FPUCmd.fpchki32 => (1, 1)     // Table 11.28
-    case FPUCmd.fpchki64 => (1, 1)     // Table 11.28
-    case FPUCmd.fpge => (2, 2)         // Table 11.32
-    case FPUCmd.fplg => (2, 2)         // Table 11.32
-    case FPUCmd.fprem => (74, 529)     // Table 11.32 (max)
-    case FPUCmd.fprange => (10, 17)    // Table 11.32 (max)
-    case FPUCmd.fpr32tor64 => (2, 2)   // Table 11.29
-    case FPUCmd.fpr64tor32 => (2, 2)   // Table 11.29
+  def latencyFor(cmd: FPUCmd.E): (Int, Int) = cmd match {
+    case FPUCmd.fpadd => (2, 2)
+    case FPUCmd.fpsub => (2, 2)
+    case FPUCmd.fpmul => (2, 3)
+    case FPUCmd.fpdiv => (5, 15)
+    case FPUCmd.fpsqrt => (5, 15)
+    case FPUCmd.fpldnlsn => (2, 2)
+    case FPUCmd.fpldnldb => (2, 2)
+    case FPUCmd.fpldnlsni => (2, 2)
+    case FPUCmd.fpldnldbi => (2, 2)
+    case FPUCmd.fpldzerosn => (1, 1)
+    case FPUCmd.fpldzerodb => (1, 1)
+    case FPUCmd.fpldnladdsn => (3, 3)
+    case FPUCmd.fpldnladddb => (3, 3)
+    case FPUCmd.fpldnlmulsn => (2, 2)
+    case FPUCmd.fpldnlmuldb => (3, 3)
+    case FPUCmd.fpstnlsn => (2, 2)
+    case FPUCmd.fpstnldb => (2, 2)
+    case FPUCmd.fpstnli32 => (2, 2)
+    case FPUCmd.fpentry => (1, 1)
+    case FPUCmd.fprev => (1, 1)
+    case FPUCmd.fpdup => (1, 1)
+    case FPUCmd.fprn => (1, 1)
+    case FPUCmd.fprz => (1, 1)
+    case FPUCmd.fprp => (1, 1)
+    case FPUCmd.fprm => (1, 1)
+    case FPUCmd.fpabs => (1, 1)
+    case FPUCmd.fpexpinc32 => (2, 2)
+    case FPUCmd.fpexpdec32 => (2, 2)
+    case FPUCmd.fpmulby2 => (2, 2)
+    case FPUCmd.fpdivby2 => (2, 2)
+    case FPUCmd.fprtoi32 => (2, 4)
+    case FPUCmd.fpi32tor32 => (2, 4)
+    case FPUCmd.fpi32tor64 => (2, 2)
+    case FPUCmd.fpb32tor64 => (2, 2)
+    case FPUCmd.fpnoround => (2, 2)
+    case FPUCmd.fpint => (2, 4)
+    case FPUCmd.fpgt => (1, 1)
+    case FPUCmd.fpeq => (1, 1)
+    case FPUCmd.fpordered => (1, 1)
+    case FPUCmd.fpnan => (1, 1)
+    case FPUCmd.fpnotfinite => (1, 1)
+    case FPUCmd.fpchki32 => (1, 1)
+    case FPUCmd.fpchki64 => (1, 1)
+    case FPUCmd.fpge => (2, 2)
+    case FPUCmd.fplg => (2, 2)
+    case FPUCmd.fprem => (74, 529)
+    case FPUCmd.fprange => (10, 17)
+    case FPUCmd.fpr32tor64 => (2, 2)
+    case FPUCmd.fpr64tor32 => (2, 2)
   }
 
   def shiftStackFor(cmd: FPUCmd.E): Bool = cmd match {

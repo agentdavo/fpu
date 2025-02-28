@@ -39,25 +39,12 @@ object FpuUtils {
       FloatMode.NORMAL -> AFix.S(0, 11 downto -12 bits)
     )
     f.mantissa := mode.mux(
-      FloatMode.ZERO -> AFix.U(0, param.mantissaWidth - 1 downto 0 bits),
-      FloatMode.INF -> AFix.U(0, param.mantissaWidth - 1 downto 0 bits),
-      FloatMode.NAN -> AFix.U(FPUConfig.nanMaskValue << (param.mantissaWidth - 52), param.mantissaWidth - 1 downto 0 bits),
-      FloatMode.NORMAL -> AFix.U(0, param.mantissaWidth - 1 downto 0 bits)
+      FloatMode.ZERO -> AFix.U(0, FPUConfig.mantissaWidth + 3 downto 0 bits),
+      FloatMode.INF -> AFix.U(0, FPUConfig.mantissaWidth + 3 downto 0 bits),
+      FloatMode.NAN -> AFix.U(FPUConfig.nanMaskValue << (FPUConfig.mantissaWidth - 52), FPUConfig.mantissaWidth + 3 downto 0 bits),
+      FloatMode.NORMAL -> AFix.U(0, FPUConfig.mantissaWidth + 3 downto 0 bits)
     )
     f
-  }
-
-  def clearExceptions(exceptions: Bundle): Unit = {
-    exceptions.asInstanceOf[Bundle].elements.foreach {
-      case ("invalidOp", invalidOp) => invalidOp := False
-      case ("divideByZero", divideByZero) => divideByZero := False
-      case ("overflow", overflow) => overflow := False
-      case ("underflow", underflow) => underflow := False
-      case ("inexact", inexact) => inexact := False
-      case ("fpError", fpError) => fpError := False
-      case ("excCode", excCode) => excCode := U(0, 3 bits)
-      case _ =>
-    }
   }
 
   def exponentDifference(expA: AFix, expB: AFix): (AFix, Bool) = {
