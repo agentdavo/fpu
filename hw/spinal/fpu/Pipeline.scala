@@ -1,25 +1,23 @@
 package fpu
 
 import spinal.core._
+import spinal.lib._
 import spinal.lib.misc.pipeline._
 import spinal.lib.misc.plugin.FiberPlugin
+import spinal.core.sim._
 
-// Base pipeline class with fixed stages
 class Pipeline extends Component {
-  // Define the five pipeline nodes
-  val n0 = Node() // Input handling and stack management
-  val n1 = Node() // Preprocessing (unpack operands)
-  val n2 = Node() // Main computation
-  val n3 = Node() // Intermediate pass-through
-  val n4 = Node() // Output latching and result delivery
+  val n0 = Node()
+  val n1 = Node()
+  val n2 = Node()
+  val n3 = Node()
+  val n4 = Node()
 
-  // Connect nodes with StageLinks
-  val s01 = StageLink(n0, n1)
-  val s12 = StageLink(n1, n2)
-  val s23 = StageLink(n2, n3)
-  val s34 = StageLink(n3, n4)
+  val s01 = CtrlLink(n0, n1)
+  val s12 = CtrlLink(n1, n2)
+  val s23 = CtrlLink(n2, n3)
+  val s34 = CtrlLink(n3, n4)
 
-  // Common payloads accessible across plugins
   val CMD = Payload(FPUCmd())
   val CMD_VALUE = Payload(Bits(64 bits))
   val CMD_ADDR = Payload(UInt(32 bits))
@@ -38,7 +36,6 @@ class Pipeline extends Component {
   val RESULT_MANT = Payload(UInt(FPUConfig.mantissaWidth + 4 bits))
   val INT_RESULT = Payload(UInt(32 bits))
 
-  // IO definition
   val io = new Bundle {
     val cmdIn = slave Stream new Bundle {
       val cmd = FPUCmd()
@@ -65,11 +62,10 @@ class Pipeline extends Component {
     }
   }
 
-  // Stack and registers
   val stack = Vec(Reg(FPReg()), FPUConfig.stackSize)
   for (s <- stack) {
     s.value.init(0)
-    s.typeTag.init(1)
+    s.typeTag.init(FpuFormat.DOUBLE)
   }
   val areg = Reg(UInt(32 bits)) init(0)
   val breg = Reg(UInt(32 bits)) init(0)
@@ -77,13 +73,50 @@ class Pipeline extends Component {
 
   val exceptions = io.exceptions
 
-  // Base build method to instantiate plugins
   def build(): Unit = {
-    Builder(s01, s12, s23, s34)
+    val inputPlugin = new InputPlugin()
+    Builder(inputPlugin :: s01 :: s12 :: s23 :: s34 :: Nil)
   }
 }
 
-// Basic pipeline simulation
+class InputPlugin extends FiberPlugin {
+  override def build(): Unit = {
+    val pipeline = host[Pipeline]
+    import pipeline._
+
+    n0.on {
+      when(io.cmdIn.valid) {
+        CMD := io.cmdIn.cmd
+        CMD_VALUE := io.cmdIn.value
+        CMD_ADDR := io.cmdIn.addr
+        IAREG := io.cmdIn.integerA
+        IBREG := io.cmdIn.integerB
+        ICREG := io.cmdIn.integerC
+        MICRO_OP.cmd := io.cmdIn.cmd
+        MICRO_OP.latencySingle := FPUConfig.latencyFor(io.cmdIn.cmd)._1
+        MICRO_OP.latencyDouble := FPUConfig.latencyFor(io.cmdIn.cmd)._2
+        MICRO_OP.shiftStack := FPUConfig.shiftStackFor(io.cmdIn.cmd)
+        MICRO_OP.popStack := FPUConfig.popStackFor(io.cmdIn.cmd)
+        MICRO_OP.writeResult := FPUConfig.writeResultFor(io.cmdIn.cmd)
+        MICRO_OP.memRead := FPUConfig.memReadFor(io.cmdIn.cmd)
+        MICRO_OP.memWrite := FPUConfig.memWriteFor(io.cmdIn.cmd)
+        MICRO_OP.useInteger := FPUConfig.useIntegerFor(io.cmdIn.cmd)
+        io.cmdIn.ready := True
+      }
+    }
+
+    n4.on {
+      when(n4.isValid && MICRO_OP.cmd === FPUCmd.fpldzerosn) {
+        stack(0).value := 0
+        stack(0).typeTag := FpuFormat.SINGLE
+        io.resultOut.value := 0
+        io.resultOut.done := True
+        io.resultOut.integerResult := 0
+      }
+    }
+  }
+}
+
 object PipelineSim extends App {
   SimConfig.withFstWave.compile(new Pipeline()).doSim { dut =>
     dut.clockDomain.forkStimulus(period = 20)
@@ -94,10 +127,8 @@ object PipelineSim extends App {
     dut.io.mem.ready #= true
     dut.clockDomain.waitSampling(5)
 
-    // Test case: fpldzerosn (load zero single, 1 cycle, shifts stack)
     println("Testing basic pipeline with fpldzerosn")
     
-    // Initialize inputs
     dut.io.cmdIn.cmd #= FPUCmd.fpldzerosn
     dut.io.cmdIn.value #= 0
     dut.io.cmdIn.addr #= 0x100
@@ -108,7 +139,6 @@ object PipelineSim extends App {
     dut.clockDomain.waitSampling(1)
     dut.io.cmdIn.valid #= false
 
-    // Monitor pipeline stages and output
     var cycles = 0
     val maxCycles = 10
     while (!dut.io.resultOut.done.toBoolean && cycles < maxCycles) {
@@ -124,13 +154,12 @@ object PipelineSim extends App {
       cycles += 1
     }
 
-    // Check results
     val result = dut.io.resultOut.value.toBigInt
-    val expected = BigInt(0) // fpldzerosn loads 0
+    val expected = BigInt(0)
     val stackTop = dut.stack(0).value.toBigInt
     assert(result == expected, s"Result mismatch: got 0x$result, expected 0x$expected")
     assert(stackTop == expected, s"Stack top mismatch: got 0x$stackTop, expected 0x$expected")
-    assert(cycles <= 5, s"Pipeline took too long: $cycles cycles") // 5 stages max
+    assert(cycles <= 5, s"Pipeline took too long: $cycles cycles")
     println(s"PASS: Pipeline completed in $cycles cycles, result=0x$result, stack[0]=0x$stackTop")
   }
 }
