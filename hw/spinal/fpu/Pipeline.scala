@@ -7,20 +7,17 @@ import spinal.lib.misc.plugin._
 import spinal.core.sim._
 
 class Pipeline extends Component {
-  // Define pipeline nodes
   val n0 = Node()
   val n1 = Node()
   val n2 = Node()
   val n3 = Node()
   val n4 = Node()
 
-  // Connect nodes with CtrlLinks
   val s01 = CtrlLink(n0, n1)
   val s12 = CtrlLink(n1, n2)
   val s23 = CtrlLink(n2, n3)
   val s34 = CtrlLink(n3, n4)
 
-  // Payloads
   val CMD = Payload(FPUCmd())
   val CMD_VALUE = Payload(Bits(64 bits))
   val CMD_ADDR = Payload(UInt(32 bits))
@@ -43,7 +40,6 @@ class Pipeline extends Component {
   val STAGE2_SUM = Payload(AFix.S(2 * (FPUConfig.mantissaWidth + 4) - 1 downto 0 bits))
   val MUL_OVERFLOW = Payload(Bool())
 
-  // IO definition
   val io = new Bundle {
     val cmdIn = slave Stream new Bundle {
       val cmd = FPUCmd()
@@ -70,7 +66,6 @@ class Pipeline extends Component {
     }
   }
 
-  // Stack and registers
   val stack = Vec(Reg(FPReg()), FPUConfig.stackSize)
   for (s <- stack) {
     s.value.init(0)
@@ -81,19 +76,51 @@ class Pipeline extends Component {
   val creg = Reg(UInt(32 bits)) init(0)
   val exceptions = io.exceptions
 
-  // Build method with plugins
+  val inputPlugin = new InputPlugin()
+  val preprocessPlugin = new PreprocessPlugin()
+  val vcuPlugin = new VCUPlugin()
+  val adderPlugin = new AdderPlugin()
+  val multiplierPlugin = new MultiplierPlugin()
+  val dividerPlugin = new DividerPlugin()
+  val outputPlugin = new OutputPlugin()
+
   def build(): Unit = {
-    val preprocessPlugin = new PreprocessPlugin()
-    val vcuPlugin = new VCUPlugin()
-    val adderPlugin = new AdderPlugin()
-    val multiplierPlugin = new MultiplierPlugin()
-    val dividerPlugin = new DividerPlugin()
-    val outputPlugin = new OutputPlugin()
-    Builder(preprocessPlugin :: vcuPlugin :: adderPlugin :: multiplierPlugin :: dividerPlugin :: outputPlugin :: s01 :: s12 :: s23 :: s34 :: Nil)
+    Builder(inputPlugin :: preprocessPlugin :: vcuPlugin :: adderPlugin :: multiplierPlugin :: dividerPlugin :: outputPlugin :: s01 :: s12 :: s23 :: s34 :: Nil)
   }
 }
 
-// Preprocessing plugin (n1)
+class InputPlugin extends FiberPlugin {
+  override def build(): Unit = {
+    val pipeline = host[Pipeline]
+    import pipeline._
+
+    n0.on {
+      when(io.cmdIn.valid) {
+        CMD := io.cmdIn.cmd
+        CMD_VALUE := io.cmdIn.value
+        CMD_ADDR := io.cmdIn.addr
+        IAREG := io.cmdIn.integerA
+        IBREG := io.cmdIn.integerB
+        ICREG := io.cmdIn.integerC
+        MICRO_OP.cmd := io.cmdIn.cmd
+        MICRO_OP.latencySingle := FPUConfig.latencyFor(io.cmdIn.cmd)._1
+        MICRO_OP.latencyDouble := FPUConfig.latencyFor(io.cmdIn.cmd)._2
+        MICRO_OP.shiftStack := FPUConfig.shiftStackFor(io.cmdIn.cmd)
+        MICRO_OP.popStack := FPUConfig.popStackFor(io.cmdIn.cmd)
+        MICRO_OP.writeResult := FPUConfig.writeResultFor(io.cmdIn.cmd)
+        MICRO_OP.memRead := FPUConfig.memReadFor(io.cmdIn.cmd)
+        MICRO_OP.memWrite := FPUConfig.memWriteFor(io.cmdIn.cmd)
+        MICRO_OP.useInteger := FPUConfig.useIntegerFor(io.cmdIn.cmd)
+        io.cmdIn.ready := True
+        when(MICRO_OP.cmd === FPUCmd.fpldzerosn) {
+          stack(0).value := 0
+          stack(0).typeTag := FpuFormat.SINGLE
+        }
+      }
+    }
+  }
+}
+
 class PreprocessPlugin extends FiberPlugin {
   override def build(): Unit = {
     val pipeline = host[Pipeline]
@@ -110,7 +137,6 @@ class PreprocessPlugin extends FiberPlugin {
   }
 }
 
-// VCU plugin (n2)
 class VCUPlugin extends FiberPlugin {
   val vcu = new FpuVCU(FloatUnpackedParam())
   override def build(): Unit = {
@@ -145,7 +171,7 @@ class VCUPlugin extends FiberPlugin {
           } elsewhen(isNaN) {
             RESULT_EXP := S((1 << FPUConfig.exponentWidth) - 1, FPUConfig.exponentWidth + 2 bits)
             RESULT_SIGN := vcu.io.result.sign
-            RESULT_MANT := vcu.io.result.mantissa // Simplified; T9000 uses quiet NaN
+            RESULT_MANT := vcu.io.result.mantissa
             exceptions.invalidOp := True
             exceptions.fpError := True
             exceptions.excCode := ExceptionCodes.invalidOp
@@ -160,7 +186,6 @@ class VCUPlugin extends FiberPlugin {
   }
 }
 
-// Adder plugin (n2)
 class AdderPlugin extends FiberPlugin {
   override def build(): Unit = {
     val pipeline = host[Pipeline]
@@ -191,7 +216,6 @@ class AdderPlugin extends FiberPlugin {
   }
 }
 
-// Divider plugin (n2)
 class DividerPlugin extends FiberPlugin {
   override def build(): Unit = {
     val pipeline = host[Pipeline]
@@ -205,13 +229,12 @@ class DividerPlugin extends FiberPlugin {
         )
         RESULT_EXP := divExpRaw
         RESULT_SIGN := n2(SIGN_A) ^ n2(SIGN_B)
-        RESULT_MANT := n2(MANT_A) // Placeholder; needs Divider implementation
+        RESULT_MANT := n2(MANT_A) // Placeholder until Divider is implemented
       }
     }
   }
 }
 
-// Multiplier plugin (n2-n4)
 class MultiplierPlugin extends FiberPlugin {
   override def build(): Unit = {
     val pipeline = host[Pipeline]
@@ -261,7 +284,6 @@ class MultiplierPlugin extends FiberPlugin {
   }
 }
 
-// Output plugin (n4)
 class OutputPlugin extends FiberPlugin {
   override def build(): Unit = {
     val pipeline = host[Pipeline]
@@ -307,7 +329,6 @@ class OutputPlugin extends FiberPlugin {
   }
 }
 
-// Basic pipeline simulation
 object PipelineSim extends App {
   SimConfig.withFstWave.compile(new Pipeline()).doSim { dut =>
     dut.clockDomain.forkStimulus(period = 20)
