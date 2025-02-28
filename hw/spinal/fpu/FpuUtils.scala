@@ -7,14 +7,14 @@ object FpuUtils {
   def CountLeadingZeros(vec: Bits): UInt = {
     val width = vec.getWidth
     val lz = UInt(log2Up(width + 1) bits)
-    lz := U(0, log2Up(width + 1) bits)
+    lz := 0
     for (i <- width - 1 downto 0) {
       when(vec(i)) {
-        lz := U(width - 1 - i, log2Up(width + 1) bits)
+        lz := (width - 1 - i)
       }
     }
     when(vec === 0) {
-      lz := U(width, log2Up(width + 1) bits)
+      lz := width
     }
     lz
   }
@@ -23,7 +23,7 @@ object FpuUtils {
     val isZero = f.mode === FloatMode.ZERO
     val isNaN = f.mode === FloatMode.NAN
     val isInf = f.mode === FloatMode.INF
-    val isDenorm = f.mode === FloatMode.NORMAL && f.exponent < AFix.S(-FPUConfig.bias, 11 downto -12 bits)
+    val isDenorm = f.mode === FloatMode.NORMAL && f.exponent < -FPUConfig.bias
     (isZero, isNaN, isInf, isDenorm)
   }
 
@@ -33,21 +33,21 @@ object FpuUtils {
     f.sign := sign
     f.quiet := mode === FloatMode.NAN
     f.exponent := mode.mux(
-      FloatMode.ZERO -> AFix.S(0, 11 downto -12 bits),
-      FloatMode.INF -> AFix.S(param.exponentMax, 11 downto -12 bits),
-      FloatMode.NAN -> AFix.S(param.exponentMax, 11 downto -12 bits),
-      FloatMode.NORMAL -> AFix.S(0, 11 downto -12 bits)
+      FloatMode.ZERO -> S(0, FPUConfig.exponentWidth + 2 bits),
+      FloatMode.INF -> S(param.exponentMax, FPUConfig.exponentWidth + 2 bits),
+      FloatMode.NAN -> S(param.exponentMax, FPUConfig.exponentWidth + 2 bits),
+      FloatMode.NORMAL -> S(0, FPUConfig.exponentWidth + 2 bits)
     )
     f.mantissa := mode.mux(
-      FloatMode.ZERO -> AFix.U(0, FPUConfig.mantissaWidth + 3 downto 0 bits),
-      FloatMode.INF -> AFix.U(0, FPUConfig.mantissaWidth + 3 downto 0 bits),
-      FloatMode.NAN -> AFix.U(FPUConfig.nanMaskValue << (FPUConfig.mantissaWidth - 52), FPUConfig.mantissaWidth + 3 downto 0 bits),
-      FloatMode.NORMAL -> AFix.U(0, FPUConfig.mantissaWidth + 3 downto 0 bits)
+      FloatMode.ZERO -> U(0, FPUConfig.mantissaWidth + 4 bits),
+      FloatMode.INF -> U(0, FPUConfig.mantissaWidth + 4 bits),
+      FloatMode.NAN -> U(FPUConfig.nanMaskValue << (FPUConfig.mantissaWidth - 52), FPUConfig.mantissaWidth + 4 bits),
+      FloatMode.NORMAL -> U(0, FPUConfig.mantissaWidth + 4 bits)
     )
     f
   }
 
-  def exponentDifference(expA: AFix, expB: AFix): (AFix, Bool) = {
+  def exponentDifference(expA: SInt, expB: SInt): (SInt, Bool) = {
     val diff = expA - expB
     val aGreater = expA >= expB
     (diff, aGreater)
@@ -56,7 +56,7 @@ object FpuUtils {
   def boothRecodeRadix4(multiplier: AFix, width: Int): (Vec[AFix], AFix) = {
     val partialCount = (width + 1) / 2 + 1
     val recoded = Vec(AFix.S(2 * width - 1 downto 0 bits), partialCount - 1)
-    val padded = Cat(multiplier.asBits, U(0, 1 bit)).asUInt
+    val padded = Cat(multiplier.asBits.resize(width), U(0, 1 bit)).asUInt
     val correction = Reg(AFix.S(2 * width - 1 downto 0 bits)) init(0)
     for (i <- 0 until partialCount - 1) {
       val bits = padded(2 * i + 2 downto 2 * i)
@@ -79,14 +79,15 @@ object FpuUtils {
 
   def carrySaveReduce7to2(partials: Vec[AFix], startIdx: Int, count: Int): (AFix, AFix) = {
     require(count <= 7, "T9000 7:2 array supports up to 7 inputs")
+    val width = partials(0).maxExp - partials(0).minExp + 1
     val sum = Vec(partials.slice(startIdx, startIdx + count)).reduce(_ + _)
-    (sum, AFix.S(0, sum.maxExp downto sum.minExp bits))
+    (sum, AFix.S(0, width - 1 downto 0 bits))
   }
 
   def interpolateRounding(p: AFix, roundMode: FPUConfig.RoundMode.C, mantSize: Int): AFix = {
-    val pPlus1 = p + AFix.U(1, mantSize - 1 downto 0 bits)
-    val pPlus2 = p + AFix.U(2, mantSize - 1 downto 0 bits)
-    val needsShift = p >= AFix.U(2, mantSize - 1 downto 0 bits)
+    val pPlus1 = p + AFix.U(U(1, mantSize bits))
+    val pPlus2 = p + AFix.U(U(2, mantSize bits))
+    val needsShift = p >= AFix.U(U(2, mantSize bits))
     val guard = p.asBits(1)
     val sticky = p.asBits(0)
     val rounded = roundMode.mux(
@@ -98,10 +99,10 @@ object FpuUtils {
     Mux(needsShift, rounded >> 1, rounded).trim(mantSize bits)
   }
 
-  def normalizeWithAFix(mant: AFix, exp: AFix, mantSize: Int): (AFix, AFix) = {
+  def normalizeWithAFix(mant: AFix, exp: SInt, mantSize: Int): (AFix, SInt) = {
     val lz = CountLeadingZeros(mant.asBits)
     val normMant = mant << lz
-    val normExp = exp - AFix.S(lz.asSInt, 11 downto -12 bits)
+    val normExp = exp - lz.asSInt.resize(FPUConfig.exponentWidth + 2)
     (normMant.trim(mantSize bits), normExp)
   }
 
@@ -141,18 +142,18 @@ object FpuUtils {
     potentialPoints(pairCount - 2) := False
 
     val normShift = UInt(log2Up(width + 1) bits)
-    normShift := U(width, log2Up(width + 1) bits)
+    normShift := width
     for (i <- 0 until pairCount - 2) {
       when(potentialPoints(i)) {
-        normShift := U((pairCount - 1 - i) * 2, log2Up(width + 1) bits)
+        normShift := (pairCount - 1 - i) * 2
       }
     }
     Mux(isSub, normShift, U(0, log2Up(width + 1) bits))
   }
 
   def progressiveCarryAssimilate(qPositive: AFix, qNegative: AFix, qDigit: SInt, width: Int): (AFix, AFix) = {
-    val qPosNext = qPositive << 2 | Mux(qDigit >= 0, AFix.S(qDigit, width - 1 downto 0 bits), AFix.S(0, width - 1 downto 0 bits))
-    val qNegNext = qNegative << 2 | Mux(qDigit < 0, AFix.S(-qDigit, width - 1 downto 0 bits), AFix.S(0, width - 1 downto 0 bits))
+    val qPosNext = qPositive << 2 | Mux(qDigit >= 0, AFix.S(qDigit.resize(width)), AFix.S(U(0, width bits)))
+    val qNegNext = qNegative << 2 | Mux(qDigit < 0, AFix.S(-qDigit.resize(width)), AFix.S(U(0, width bits)))
     (qPosNext.trim(width bits), qNegNext.trim(width bits))
   }
 }

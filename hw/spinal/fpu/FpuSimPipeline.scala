@@ -29,7 +29,7 @@ object FpuSimPipeline extends App {
     FPUTestVector(FPUCmd.fpldnldbi, 0, 0, FpuFormat.DOUBLE, 0, FpuFormat.DOUBLE, 0, FpuFormat.DOUBLE, Some(BigInt("4008000000000000", 16)), Some(0x100), BigInt("4008000000000000", 16), FpuFormat.DOUBLE, 2, false, None),
     FPUTestVector(FPUCmd.fpadd, BigInt("3ff0000000000000", 16), BigInt("4000000000000000", 16), FpuFormat.DOUBLE, 0, FpuFormat.DOUBLE, 0, FpuFormat.DOUBLE, None, None, BigInt("4008000000000000", 16), FpuFormat.DOUBLE, 2, false, None),
     FPUTestVector(FPUCmd.fpmul, BigInt("4000000000000000", 16), BigInt("4000000000000000", 16), FpuFormat.DOUBLE, 0, FpuFormat.DOUBLE, 0, FpuFormat.DOUBLE, None, None, BigInt("4010000000000000", 16), FpuFormat.DOUBLE, 3, false, None),
-    FPUTestVector(FPUCmd.fpmul, BigInt("4000000000000000", 16), BigInt("4000000000000000", 16), FpuFormat.SINGLE, 0, FpuFormat.SINGLE, 0, FpuFormat.SINGLE, None, None, BigInt("4080000000000000", 16), FpuFormat.SINGLE, 2, false, None),
+    FPUTestVector(FPUCmd.fpmul, BigInt("40000000", 16), BigInt("40000000", 16), FpuFormat.SINGLE, 0, FpuFormat.SINGLE, 0, FpuFormat.SINGLE, None, None, BigInt("40800000", 16), FpuFormat.SINGLE, 2, false, None),
     FPUTestVector(FPUCmd.fpdiv, BigInt("4010000000000000", 16), BigInt("4000000000000000", 16), FpuFormat.DOUBLE, 0, FpuFormat.DOUBLE, 0, FpuFormat.DOUBLE, None, None, BigInt("4000000000000000", 16), FpuFormat.DOUBLE, 15, false, None),
     FPUTestVector(FPUCmd.fpsqrt, 0, BigInt("4010000000000000", 16), FpuFormat.DOUBLE, 0, FpuFormat.DOUBLE, 0, FpuFormat.DOUBLE, None, None, BigInt("4000000000000000", 16), FpuFormat.DOUBLE, 15, false, None)
   )
@@ -82,7 +82,7 @@ object FpuSimPipeline extends App {
       }
 
       val result = dut.io.resultOut.value.toBigInt
-      val resultType = dut.stack(0).typeTag
+      val resultType = dut.stack(0).typeTag.toEnum
       val errorOccurred = dut.io.exceptions.fpError.toBoolean
       println(s"Result: 0x${result.toString(16)}, Type: ${resultType}, Cycles: $cycles, " +
               s"Error: $errorOccurred, MemWrite: ${memWrite.map(v => s"0x${v.toString(16)}").getOrElse("None")}")
