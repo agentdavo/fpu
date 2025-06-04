@@ -19,8 +19,8 @@ case class FpuVCU() extends Component {
   val aBits = Mux(io.isDouble, io.operandA, Cat(io.operandA(31), io.operandA(30 downto 23).asUInt.resize(11), io.operandA(22 downto 0).asUInt.resize(52)))
   val bBits = Mux(io.isDouble, io.operandB, Cat(io.operandB(31), io.operandB(30 downto 23).asUInt.resize(11), io.operandB(22 downto 0).asUInt.resize(52)))
 
-  val aUnpacked = FloatUnpacked.toFloatUnpacked(aBits, Mux(io.isDouble, FpuFormat.DOUBLE, FpuFormat.SINGLE))
-  val bUnpacked = FloatUnpacked.toFloatUnpacked(bBits, Mux(io.isDouble, FpuFormat.DOUBLE, FpuFormat.SINGLE))
+  val aUnpacked = FloatUnpacked.fromIEEE754(aBits, Mux(io.isDouble, FpuFormat.DOUBLE, FpuFormat.SINGLE))
+  val bUnpacked = FloatUnpacked.fromIEEE754(bBits, Mux(io.isDouble, FpuFormat.DOUBLE, FpuFormat.SINGLE))
 
   val (isZeroA, isNaNA, isInfA, isDenormA) = FpuUtils.isSpecial(aUnpacked)
   val (isZeroB, isNaNB, isInfB, isDenormB) = FpuUtils.isSpecial(bUnpacked)

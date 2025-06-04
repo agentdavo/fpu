@@ -45,26 +45,30 @@ object FloatUnpacked {
   def fromIEEE754(bits: Bits, format: FpuFormat.C): FloatUnpacked = {
     val f = FloatUnpacked()
 
-    // Define hardware signals with constant values selected by format
-    val expWidth = format.mux(
-      FpuFormat.SINGLE -> U(expWidthSingle, 4 bits),
-      FpuFormat.DOUBLE -> U(expWidthDouble, 4 bits)
+    val sign = bits(63)
+    val expBits = format.mux(
+      FpuFormat.SINGLE -> bits(62 downto (63 - expWidthSingle)),
+      FpuFormat.DOUBLE -> bits(62 downto (63 - expWidthDouble))
     )
-    val mantWidth = format.mux(
-      FpuFormat.SINGLE -> U(mantWidthSingle, 6 bits),
-      FpuFormat.DOUBLE -> U(mantWidthDouble, 6 bits)
+    val mantBits = format.mux(
+      FpuFormat.SINGLE -> bits(mantWidthSingle - 1 downto 0),
+      FpuFormat.DOUBLE -> bits(mantWidthDouble - 1 downto 0)
     )
     val bias = format.mux(
-      FpuFormat.SINGLE -> U(biasSingle, 11 bits),
-      FpuFormat.DOUBLE -> U(biasDouble, 11 bits)
+      FpuFormat.SINGLE -> biasSingle,
+      FpuFormat.DOUBLE -> biasDouble
     )
-
-    val sign = bits(63)
-    val expBits = bits(62 downto (63 - expWidth))
-    val mantBits = bits(mantWidth - 1 downto 0)
 
     val exponent = expBits.asUInt
     val mantissa = mantBits.asUInt
+    val expWidth = format.mux(
+      FpuFormat.SINGLE -> expWidthSingle,
+      FpuFormat.DOUBLE -> expWidthDouble
+    )
+    val mantWidth = format.mux(
+      FpuFormat.SINGLE -> mantWidthSingle,
+      FpuFormat.DOUBLE -> mantWidthDouble
+    )
 
     when(exponent === 0 && mantissa === 0) {
       f.mode := FloatMode.ZERO
@@ -80,7 +84,7 @@ object FloatUnpacked {
       f.mantissa := 0
     } elsewhen(exponent === ((1 << expWidth) - 1) && mantissa =/= 0) {
       f.mode := FloatMode.NAN
-      f.quiet := mantissa(mantWidth - 1) // MSB determines quiet/signaling
+      f.quiet := mantissa(mantWidth - 1)
       f.sign := sign
       f.exponent := 0
       f.mantissa := mantissa << (FPUConfig.mantissaWidth + 4 - mantWidth)
@@ -88,7 +92,7 @@ object FloatUnpacked {
       f.mode := FloatMode.NORMAL
       f.quiet := False
       f.sign := sign
-      f.exponent := (exponent.asSInt - bias.asSInt).resize(FPUConfig.exponentWidth + 2)
+      f.exponent := (exponent.asSInt - bias).resize(FPUConfig.exponentWidth + 2)
       f.mantissa := Cat(U(1, 1 bits), mantissa).asUInt << (FPUConfig.mantissaWidth + 4 - mantWidth - 1)
     }
     f
@@ -98,38 +102,38 @@ object FloatUnpacked {
     val result = Bits(64 bits)
 
     val expWidth = format.mux(
-      FpuFormat.SINGLE -> U(expWidthSingle, 4 bits),
-      FpuFormat.DOUBLE -> U(expWidthDouble, 4 bits)
+      FpuFormat.SINGLE -> expWidthSingle,
+      FpuFormat.DOUBLE -> expWidthDouble
     )
     val mantWidth = format.mux(
-      FpuFormat.SINGLE -> U(mantWidthSingle, 6 bits),
-      FpuFormat.DOUBLE -> U(mantWidthDouble, 6 bits)
+      FpuFormat.SINGLE -> mantWidthSingle,
+      FpuFormat.DOUBLE -> mantWidthDouble
     )
     val bias = format.mux(
-      FpuFormat.SINGLE -> U(biasSingle, 11 bits),
-      FpuFormat.DOUBLE -> U(biasDouble, 11 bits)
+      FpuFormat.SINGLE -> biasSingle,
+      FpuFormat.DOUBLE -> biasDouble
     )
 
-    val expAdjusted = f.exponent + bias.asSInt
+    val expAdjusted = f.exponent + bias
     val mantShifted = f.mantissa >> (FPUConfig.mantissaWidth + 4 - mantWidth - 1)
     val mantWithoutHidden = mantShifted(mantWidth - 1 downto 0)
 
     switch(f.mode) {
       is(FloatMode.ZERO) {
-        result := f.sign ## B(0, expWidth bits) ## B(0, mantWidth bits) ## B(0, 64 - 1 - expWidth - mantWidth bits)
+        result := f.sign ## B(0, expWidth bits) ## B(0, mantWidth bits) ## B(0, (64 - 1 - expWidth - mantWidth) bits)
       }
       is(FloatMode.INF) {
-        result := f.sign ## B((1 << expWidth) - 1, expWidth bits) ## B(0, mantWidth bits) ## B(0, 64 - 1 - expWidth - mantWidth bits)
+        result := f.sign ## B((1 << expWidth) - 1, expWidth bits) ## B(0, mantWidth bits) ## B(0, (64 - 1 - expWidth - mantWidth) bits)
       }
       is(FloatMode.NAN) {
         val mantTruncated = f.mantissa(mantWidth - 1 downto 0) | (f.quiet ? U(1 << (mantWidth - 1)) | U(0))
-        result := f.sign ## B((1 << expWidth) - 1, expWidth bits) ## mantTruncated ## B(0, 64 - 1 - expWidth - mantWidth bits)
+        result := f.sign ## B((1 << expWidth) - 1, expWidth bits) ## mantTruncated ## B(0, (64 - 1 - expWidth - mantWidth) bits)
       }
       is(FloatMode.NORMAL) {
         when(expAdjusted >= ((1 << expWidth) - 1)) {
-          result := f.sign ## B((1 << expWidth) - 1, expWidth bits) ## B(0, mantWidth bits) ## B(0, 64 - 1 - expWidth - mantWidth bits)
+          result := f.sign ## B((1 << expWidth) - 1, expWidth bits) ## B(0, mantWidth bits) ## B(0, (64 - 1 - expWidth - mantWidth) bits)
         } otherwise {
-          result := f.sign ## expAdjusted.asUInt.resize(expWidth) ## mantWithoutHidden ## B(0, 64 - 1 - expWidth - mantWidth bits)
+          result := f.sign ## expAdjusted.asUInt.resize(expWidth) ## mantWithoutHidden ## B(0, (64 - 1 - expWidth - mantWidth) bits)
         }
       }
     }
